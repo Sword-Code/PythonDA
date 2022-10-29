@@ -1,0 +1,525 @@
+import numpy as np
+from scipy.integrate._ivp.base import ConstantDenseOutput, DenseOutput
+from scipy.integrate._ivp.ivp import OdeResult
+from scipy.integrate import OdeSolution
+import itertools
+from copy import deepcopy
+import matplotlib.pyplot as plt
+from tabulate import tabulate
+
+class Observation:
+    def __init__(self, obs, std):
+        self.obs=np.array(obs)
+        self.std=np.array(std)
+        self.std1=1.0/self.std
+        
+    def H(self, state):
+        return state
+    
+    def misfit(self, Hstate):
+        return self.obs-Hstate
+    
+    def sqrtR1(self, Hbase):
+        return Hbase*self.std1
+    
+class Multiobs(Observation):
+    def __init__(self, observations):
+        self.observations=observations
+        self.obs=np.concatenate([observation.obs for observation in self.observations], axis=-1)
+        
+    def H(self, state):
+        return np.concatenate([observation.H(state) for observation in self.observations], axis=-1)
+    
+    def sqrtR1(self, Hbase):
+        return np.concatenate([observation.sqrtR1(Hbase) for observation in self.observations], axis=-1)
+
+class EnsFilter:
+    def __init__(self, EnsSize, weights=None, forget=1.0):
+        self.EnsSize=EnsSize
+        if weights is None:
+            weights=np.ones(EnsSize)/EnsSize
+        self.weights=weights
+        self.sqrt_weights=np.sqrt(weights)
+        self.forget=forget
+    
+    def forecast(self, state, Q_std=None):
+        return state, self._mean_std(state)
+    
+    def analysis(self, state, obs):
+        return state, self._mean_std(state)
+    
+    def sampling(self, mean_and_base):
+        raise NotImplementedError
+        
+    def _mean_and_base(self, ensemble):        
+        ensemble[...,0,:]=np.average(ensemble,axis=-2,weights=self.weights)
+        ensemble[...,1:,:]-=ensemble[...,0:1,:]        
+        return ensemble 
+    
+    def _mean_std(self, ensemble, mean=None):
+        if mean is None:
+            
+            #print(self.weights)
+            #print(ensemble)
+            
+            mean=np.average(ensemble,axis=-2,weights=self.weights)
+        else:
+            mean=mean.copy()    
+        mean=mean[...,None,:]
+        anomalies=ensemble-mean
+        std=np.sqrt(np.average(anomalies**2,axis=-2,weights=self.weights))
+        mean=mean[...,0,:]        
+        return mean, std
+    
+class utils:
+    @staticmethod
+    def mean_and_base(ensemble, weights=None):        
+        ensemble[...,0,:]=np.average(ensemble,axis=-2,weights=weights)
+        ensemble[...,1:,:]-=ensemble[...,0:1,:]        
+        return ensemble
+    
+    @staticmethod
+    def mean_std(ensemble, weights=None, mean=None):
+        if mean is None:
+            mean=np.average(ensemble,axis=-2,weights=weights)
+        else:
+            mean=mean.copy()    
+        mean=mean[...,None,:]
+        anomalies=ensemble-mean
+        std=np.sqrt(np.average(anomalies**2,axis=-2,weights=weights))
+        mean=mean[...,0,:]
+        return mean, std
+    
+    @staticmethod
+    def transpose(matrices):
+        return matrices.transpose(list(range(len(matrices.shape)-2))+[-1,-2])
+    
+    @staticmethod
+    def ortmatrix(matrices,start):
+        shape=matrices.shape    
+        matrices[...,start:,:]=np.random.normal(size= shape[:-2]+(shape[-2]-start, shape[-1]))
+        matrices[...,start:,:] /= np.linalg.norm(matrices[...,start:,:], axis=-1, keepdims=True)
+        for k in range(1,shape[-2]):
+            i=np.amax([k,start])
+            matrices[...,i:,:] -= np.matmul(np.matmul(matrices[...,i:,:],matrices[...,k-1,:, None]),matrices[...,k-1:k,:])
+            matrices[i:,:]=matrices[i:,:]/np.linalg.norm(matrices[i:,:], axis=1, keepdims=True)
+            
+        return matrices
+    
+class MyOdeSolution(OdeSolution):
+    def __init__(self,ts, interpolants, shape):
+        super().__init__(ts, interpolants)
+        self.shape=shape
+        
+    def __call__(self, t):
+        result=super().__call__(t)            
+        return result.reshape(self.shape+(-1,)*(result.ndim-1))
+    
+class Model:
+    def __init__(self):
+        pass
+    
+    def __call__(self, t_span, state):
+        return state, OdeResult(t=np.array(t_span), y=np.stack([state]*2, axis=-1), sol=MyOdeSolution(t_span,[ConstantDenseOutput(t_span[0], t_span[1], state.flatten().copy())], state.shape))
+    
+class MyDenseOutput(DenseOutput):
+    def __init__(self, interpolant, delta_min, delta_max):
+        super().__init__(interpolant.t_old, interpolant.t)
+        self.delta_min=delta_min
+        self.delta_max=delta_max
+        
+    def _call_impl(self, t):
+        delta=(t-self.t_min)/(self.t_max-self.t_min)*self.delta_max + (self.t_max-t)/(self.t_max-self.t_min)*self.delta_min
+        return interpolant(t)+delta        
+
+class Metric:
+    def __init__(self, delta=0, draw=False, name=None):
+        self.delta= delta
+        self.draw=draw
+        self.name=name
+        
+    def __call__(self, result, reference):
+        if self.delta:
+            pass
+        else:
+            temp=self._call(result, reference)
+            self.result=temp.mean(axis=tuple(range(temp.ndim-2)))
+            return self.result
+        
+    def _call(self, result, reference):
+        raise NotImplementedError
+    
+    def __str__(self):
+        if self.name is None:
+            return self.__repr__()
+        else:
+            return self.name
+        
+    def __repr__(self):
+        return 'Metric()'
+    
+class DistanceByTime(Metric):
+    def __init__(self, delta=0, draw=True, name=None):
+        super().__init__(delta, draw, name)
+        
+    def _call(self, result, reference):
+        distance=np.abs(reference.sol(result.t ) - result.pre['mean'])
+        return distance
+    
+    def __repr__(self):
+        return 'DistanceByTime()'
+    
+class RmpeByTime(Metric):
+    def __init__(self, p=2, index= None, delta=0, draw=True, name=None):
+        super().__init__(delta, draw, name)
+        self.p=p
+        self.index=index
+        
+    def _call(self, result, reference):
+        distance=reference.sol(result.t ) - result.pre['mean']
+        if self.index is None:
+            distance[...]=np.mean(distance**self.p, axis=-2, keepdims=True)**(1/self.p)
+        else:
+            if type(self.index)==type(0):
+                self.index=(self.index,)
+            distance[...]=np.mean(distance[...,self.index,:]**self.p, axis=-2, keepdims=True)**(1/self.p)
+        return distance
+    
+    def __repr__(self):
+        strings=[]
+        if self.p!=2:
+            strings.append(f'p={self.p}')
+        if not self.index is None:
+            strings.append(f'index={self.index}')
+        return f'RmpeByTime({", ".join(strings)})'
+
+class TimeMean(Metric):
+    def __init__(self, metric_by_time, p=2, draw=False, name=None):
+        self.metric_by_time= metric_by_time
+        self.delta=metric_by_time.delta
+        self.p=p
+        self.draw=draw
+        self.name=name
+        
+    def _call(self, result, reference):
+        distance=self.metric_by_time._call(result, reference)
+        return np.mean(distance**self.p, axis=-1)**(1/self.p)
+    
+    def __repr__(self):
+        string='TimeMean('+str(self.metric_by_time)
+        if self.p!=2:
+            string+=f', p={self.p}'
+        string+=')'
+        return string
+
+class Test:
+    def __init__(self, t_span, model, ens_filter, observations, IC=None, delta_forecast=0, Q_std_t = None, metrics=[DistanceByTime(), RmpeByTime(name='RmseByTime'), TimeMean(DistanceByTime()), TimeMean(RmpeByTime(name='RmseByTime'))], reference=None, label=None):
+        self.model=model
+        self.t_span=t_span
+        self.IC=IC
+        self.observations=observations
+        self.ens_filter=ens_filter
+        self.delta_forecast=delta_forecast
+        if not callable(Q_std_t):
+            self.Q_std_t=lambda t: Q_std_t
+        else:
+            self.Q_std_t=Q_std_t
+        if label is None:
+            self.label=repr(ens_filter)
+        else:
+            self.label=label
+        self.metrics=metrics
+        self.reference=reference
+        
+    def compute_metrics(self, result=None, reference=None):
+        if result is None:
+            result=self.result
+        if reference is None:
+            reference=self.reference
+        self.metrics_result=[]
+        self.draw_metrics=[]
+        if reference is None:
+            return
+        for metric in self.metrics:
+            #print(self.ens_filter)
+            #print(metric(result, reference))
+            metric(result, reference)
+            if metric.draw:
+                self.draw_metrics.append(metric)
+            else:
+                self.metrics_result.append(metric)
+        
+    def run(self, with_metrics=True):
+        IC=self.IC
+        t_span=self.t_span
+        ens_filter=self.ens_filter
+        Q_std_t=self.Q_std_t
+        delta=self.delta_forecast
+        
+        state=IC.copy()
+        t=[t_span[0]]
+        obs_now=[]
+        #state, (mean,std) = ens_filter.forecast(state)
+        pre={'state':[], 'mean':[], 'std':[]}
+        post={'state':[], 'mean':[], 'std':[]}
+        observations=[]
+        segments=[]
+        sorted_obs=list(self.observations)
+        sorted_obs.sort(key=lambda x:x[0])
+        for t_obs, obs in sorted_obs+[(t_span[1], None)]:
+            if t_obs<t_span[0]: continue
+            if t_obs>t_span[1]: break
+            
+            if delta:
+                repeat=round((t_obs-t[-1])/delta)
+            else:
+                repeat=int(t_obs>t[-1])
+                
+            if t_obs<=t[-1]+delta*0.5:
+                if obs:
+                    obs_now.append(obs)
+                    continue
+            
+            state, (mean,std) = ens_filter.forecast(state, Q_std_t(t[-1]))
+            pre['state'].append(state.copy())
+            pre['mean'].append(mean)
+            pre['std'].append(std)
+            
+            if obs_now:
+                all_obs=Multiobs(obs_now)
+                state, (mean,std) = ens_filter.analysis(state,all_obs)
+            post['state'].append(state.copy())
+            post['mean'].append(mean)
+            post['std'].append(std)
+            observations.append(obs_now)
+            
+            for i in range(repeat):
+                tf=t[-1]+delta if delta else t_obs
+                
+                #print('state pre model:')
+                #print(state)
+                
+                state, full_model_result = self.model([t[-1], tf], state)
+                
+                #print('state post model:')
+                #print(state)
+                
+                if (i<repeat-1) or (obs is None):
+                    obs_now=[]
+                else:
+                    obs_now=[obs]
+                t.append(tf)
+                segments.append(full_model_result)
+                if not obs_now:
+                    state, (mean,std) = ens_filter.forecast(state, Q_std_t(t[-1]))
+                    pre['state'].append(state.copy())
+                    pre['mean'].append(mean)
+                    pre['std'].append(std)
+                    post['state'].append(state.copy())
+                    post['mean'].append(mean)
+                    post['std'].append(std)
+        
+        pre={'state':np.stack(pre['state'],-1), 'mean':np.stack(pre['mean'],-1), 'std':np.stack(pre['std'],-1)}
+        post={'state':np.stack(post['state'],-1), 'mean':np.stack(post['mean'],-1), 'std':np.stack(post['std'],-1)}
+        sol=MyOdeSolution(np.concatenate([segments[0].sol.ts]+[segment.sol.ts[1:] for segment in segments[1:]]),
+                          list(itertools.chain(*[segment.sol.interpolants for segment in segments])),
+                          state.shape)
+        result=OdeResult(t=np.array(t), pre=pre, post=post, sol=sol, obs=observations, ens_filter=ens_filter)
+        self.result =result
+        
+        if with_metrics:
+            self.compute_metrics()
+                
+        return result
+    
+    def build_IC(self, std=1.0, mean=None):
+        if mean is None:
+            mean=self.reference.y[...,0]
+        error_std=mean.copy()
+        error_std[...]=std
+        
+        mean_and_base=np.zeros(mean.shape[:-1]+(self.ens_filter.EnsSize,mean.shape[-1]))
+        mean_and_base[...,0,:]=mean
+        mean_and_base[...,np.arange(1,self.ens_filter.EnsSize),np.arange(self.ens_filter.EnsSize-1)]=error_std*np.sqrt(self.ens_filter.forget)
+        self.IC=self.ens_filter.sampling(mean_and_base)
+        return self.IC
+    
+class TwinExperiment:
+    def __init__(self, t_span, model, ens_filters, observations=None, IC=None, delta_forecast=0, Q_std_t = None, metrics=[DistanceByTime(), RmpeByTime(name='RmseByTime'), TimeMean(DistanceByTime()), TimeMean(RmpeByTime(name='RmseByTime'))], reference=None):
+        self.model=model
+        self.t_span=t_span
+        self.IC=IC
+        self.observations=observations
+        self.ens_filters=ens_filters
+        self.delta_forecast=delta_forecast
+        if not callable(Q_std_t):
+            self.Q_std_t=lambda t: Q_std_t
+        else:
+            self.Q_std_t=Q_std_t
+        self.metrics=metrics
+        self.reference=reference
+        
+    def run(self):
+        for test in self.tests:
+            print('Running '+ str(test.ens_filter) +'...')
+            test.run()
+            #print(test.)
+        
+    def build_tests(self):
+        #self.tests=[Test(self.t_span, self.model, ens_filter, self.observations, self.IC, self.delta_forecast, self.Q_std_t, self.metrics, self.reference) for ens_filter in self.ens_filters]
+        self.tests=[]
+        for ens_filter in self.ens_filters:
+            metrics=deepcopy(self.metrics)
+            self.tests.append(Test(self.t_span, self.model, ens_filter, self.observations, self.IC, self.delta_forecast, self.Q_std_t, metrics, self.reference))
+        return self.tests
+    
+    def build_truth(self, IC, t_span=None, delta=0, Q_std=None):
+        if t_span is None:
+            t_span=self.t_span
+        if delta==0:            
+            _, self.reference = self.model(t_span, IC)
+        else:
+            t0=t_span[0]
+            state=IC
+            segments=[]
+            for t in np.arange(t0+delta,t_span[1]+delta*0.5,delta):
+                state, segment = self.model([t0,t], state)
+                error=np.random.normal(size=state.shape)*std
+                segments.append((error,segment))
+                t0=t
+                state=state+error
+            t=np.concatenate([segments[0][1].t]+[segment[1].t[1:] for segment in segments])
+            y=np.concatenate([segments[0][1].y + segments[0][0]*(segments[0][1].t-segments[0][1].t[0])/delta] + [segment[1].y[1:] + segment[0]*(segment[1].t[1:]-segment[1].t[0])/delta for segment in segments], axis=-1)
+            
+            my_interpolants=[]
+            for seg_error, seg_sol in segments:
+                for interpolant in enumerate(seg.sol.interpolants):
+                    my_interpolants.append(MyDenseOutput(interpolant, seg_error.flatten()/(seg_sol.t[-1]-seg_sol.t[0])*(interpolant.t_min-seg_sol.t[0]), seg_error.flatten()/(seg_sol.t[-1]-seg_sol.t[0])*(interpolant.t_max-seg_sol.t[0])))
+                    
+            sol=MyOdeSolution(np.concatenate([segments[0][1].sol.ts]+[segment[1].sol.ts[1:] for segment in segments]),
+                              my_interpolants,
+                              IC.shape)
+            self.reference=OdeResult(t=t, y=y, sol=sol)
+        return self.reference
+    
+    def build_obs(self, times, template, reference=None):
+        if reference is None:
+            reference=self.reference
+        observations=[]
+        for t in times:
+            if t<reference.t[0] or t>reference.t[-1]:
+                continue
+            obs=deepcopy(template)
+            obs.obs=obs.H(reference.sol(t))+np.random.normal(size=obs.std.shape)*obs.std
+            observations.append((t, obs))
+        self.observations=observations
+        
+        return observations
+    
+    def build_ICs(self, std=1.0, truth_0=None, n_experiments=1):
+        if truth_0 is None:
+            truth_0=self.reference.y[...,0]
+        error_std=truth_0.copy()
+        error_std[...]=std
+        
+        #mean=truth_0+np.random.normal(size=(n_experiments,)+truth_0.shape)*error_std
+        mean=truth_0+np.random.normal(size=truth_0.shape)*error_std
+        for test in self.tests:
+            test.build_IC(std=error_std, mean=mean)
+            
+    def table(self, ivar=None):
+        array=[test.metrics_result]
+        
+    
+    def plot(self, ivar=0, draw_ens=False):
+        fig, ax_list = plt.subplots(2+len(self.tests[0].draw_metrics), sharex=True, figsize=[12.8,9.6])
+        ax=ax_list[0]
+        ax.plot(self.reference.t, self.reference.y[ivar], 'k', label='Truth')
+        for iobs, (t, obs) in enumerate(self.observations):
+            if obs.obs.shape[-1]>ivar:
+                obs_line,=ax.plot([t],obs.obs[ivar], 'go')
+                if iobs==0:
+                    obs_line.set_label('Observations')
+        for test in self.tests:
+            ax_number=-1
+            
+            
+            ax_number+=1
+            ax=ax_list[ax_number]
+            
+            time=np.repeat(test.result.t,2)
+            
+            array=np.stack([test.result.pre['mean'][ivar],test.result.post['mean'][ivar]],axis=-1)
+            array=array.mean(tuple(range(array.ndim-2)))
+            line,=ax.plot(time, array.flatten(), label=test.label)
+            
+            array=np.stack([test.result.pre['mean'][ivar]+test.result.pre['std'][ivar], test.result.post['mean'][ivar]+test.result.post['std'][ivar]],axis=-1)
+            array=array.mean(tuple(range(array.ndim-2)))
+            ax.plot(time, array.flatten(), '--', color=line.get_color(), label=test.label+' std')
+            
+            array=np.stack([test.result.pre['mean'][ivar]-test.result.pre['std'][ivar], test.result.post['mean'][ivar]-test.result.post['std'][ivar]],axis=-1)
+            array=array.mean(tuple(range(array.ndim-2)))
+            ax.plot(time, array.flatten(), '--', color=line.get_color())
+            
+            if draw_ens:
+                for member_pre, member_post in zip(test.result.pre['state'].reshape((-1,)+test.result.pre['state'].shape[-2:]),test.result.post['state'].reshape((-1,)+test.result.pre['state'].shape[-2:])):
+                    member_line,=ax.plot(time, np.stack([member_pre[ivar],member_post[ivar]],axis=-1).flatten(), ':', color=line.get_color(), alpha=0.2)
+                member_line.set_label(test.label + ' ensemble')
+                
+                
+            ax_number+=1
+            ax=ax_list[ax_number]
+            
+            array=np.stack([test.result.pre['std'][ivar],test.result.post['std'][ivar]],axis=-1)
+            array=array.mean(tuple(range(array.ndim-2)))
+            ax.plot(time, array.flatten(), color=line.get_color(), label=test.label)
+            
+            #print(test.label)
+            for metric in test.draw_metrics:
+                ax_number+=1
+                ax=ax_list[ax_number]
+                
+                #print(str(metric))
+                #print(metric.result[ivar])
+                ax.plot(test.result.t, metric.result[ivar], color=line.get_color(), label=test.label)
+        
+        ax_number=-1
+        
+        ax_number+=1
+        ax=ax_list[ax_number]
+        ax.set_title(f'Variable {ivar}')
+        ax.set_xlabel('Time')
+        ax.set_ylabel(f'y[{ivar}]')
+        ax.legend()
+        
+        ax_number+=1
+        ax=ax_list[ax_number]
+        ax.set_title('STD')
+        ax.set_xlabel('Time')
+        ax.set_ylabel('y')
+        ax.legend()
+        
+        for metric in self.tests[0].draw_metrics:
+            ax_number+=1
+            ax=ax_list[ax_number]
+            ax.set_title(str(metric))
+            ax.set_xlabel('Time')
+            ax.set_ylabel(str(metric))
+            ax.legend()
+        
+        fig.tight_layout()
+        #ax.plot(time, [1/np.sqrt(i*0.5) for i in range(1,len(time)+1)], 'b--')
+        
+        #print(time)
+        #print(self.result.pre['mean'])
+        #print(self.result.post['mean'])
+        #print(self.result.pre['state'])
+        #print(self.result.post['state'])
+        #print(np.stack([self.result.pre['mean'],self.result.post['mean']],axis=-1).flatten())
+        
+        plt.show()
+        
+    
+        
+        
+
