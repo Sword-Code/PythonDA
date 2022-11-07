@@ -98,11 +98,15 @@ class utils:
     def ortmatrix(matrices,start):
         shape=matrices.shape    
         matrices[...,start:,:]=np.random.normal(size= shape[:-2]+(shape[-2]-start, shape[-1]))
+        #print(matrices)
         matrices[...,start:,:] /= np.linalg.norm(matrices[...,start:,:], axis=-1, keepdims=True)
+        #print(matrices)
         for k in range(1,shape[-2]):
             i=np.amax([k,start])
             matrices[...,i:,:] -= np.matmul(np.matmul(matrices[...,i:,:],matrices[...,k-1,:, None]),matrices[...,k-1:k,:])
-            matrices[i:,:]=matrices[i:,:]/np.linalg.norm(matrices[i:,:], axis=1, keepdims=True)
+            #print(matrices)
+            matrices[...,i:,:]/=np.linalg.norm(matrices[...,i:,:], axis=-1, keepdims=True)
+            #print(matrices)
             
         return matrices
     
@@ -127,10 +131,11 @@ class MyDenseOutput(DenseOutput):
         super().__init__(interpolant.t_old, interpolant.t)
         self.delta_min=delta_min
         self.delta_max=delta_max
+        self.interpolant=interpolant
         
     def _call_impl(self, t):
         delta=(t-self.t_min)/(self.t_max-self.t_min)*self.delta_max + (self.t_max-t)/(self.t_max-self.t_min)*self.delta_min
-        return interpolant(t)+delta        
+        return self.interpolant(t)+delta        
 
 class Metric:
     def __init__(self, delta=0, draw=False, name=None):
@@ -140,7 +145,7 @@ class Metric:
         
     def __call__(self, result, reference):
         if self.delta:
-            pass
+            raise NotImplementedError
         else:
             temp=self._call(result, reference)
             self.result=temp.mean(axis=tuple(range(temp.ndim-2)))
@@ -192,18 +197,28 @@ class RmpeByTime(Metric):
         if not self.index is None:
             strings.append(f'index={self.index}')
         return f'RmpeByTime({", ".join(strings)})'
-
-class TimeMean(Metric):
-    def __init__(self, metric_by_time, p=2, draw=False, name=None):
+    
+class Summary(Metric):
+    def __init__(self, metric_by_time, draw=False, name=None):
         self.metric_by_time= metric_by_time
-        self.delta=metric_by_time.delta
+        delta=metric_by_time.delta
+        super().__init__(delta, draw, name)
+        
+    def _call(self, result, reference):
+        raise NotImplementedError
+    
+    def __repr__(self):
+        string='Summary(' + str(self.metric_by_time) + ')'
+        return string
+
+class TimeMean(Summary):
+    def __init__(self, metric_by_time, p=2, draw=False, name=None):
+        super().__init__(metric_by_time, draw, name)
         self.p=p
-        self.draw=draw
-        self.name=name
         
     def _call(self, result, reference):
         distance=self.metric_by_time._call(result, reference)
-        return np.mean(distance**self.p, axis=-1)**(1/self.p)
+        return np.mean(distance**self.p, axis=-1, keepdims=True)**(1/self.p)
     
     def __repr__(self):
         string='TimeMean('+str(self.metric_by_time)
@@ -211,9 +226,42 @@ class TimeMean(Metric):
             string+=f', p={self.p}'
         string+=')'
         return string
+    
+class LastTime(Summary):        
+    def _call(self, result, reference):
+        distance=self.metric_by_time._call(result, reference)
+        return distance[...,-1:]
+    
+    def __repr__(self):
+        string='LastTime('+str(self.metric_by_time)+')'
+        return string
+    
+class HalfTimeMean(TimeMean):
+    def _call(self, result, reference):
+        distance=self.metric_by_time._call(result, reference)
+        index=distance.shape[-1]//2
+        return np.mean(distance[...,index:]**self.p, axis=-1, keepdims=True)**(1/self.p)
+    
+    def __repr__(self):
+        string='HalfTimeMean('+str(self.metric_by_time)
+        if self.p!=2:
+            string+=f', p={self.p}'
+        string+=')'
+        return string
+    
+STANDARD_METRICS = [DistanceByTime(), 
+                    RmpeByTime(name='RmseByTime'), 
+                    LastTime(DistanceByTime()), 
+                    HalfTimeMean(DistanceByTime()), 
+                    TimeMean(DistanceByTime()), 
+                    LastTime(RmpeByTime(name='RmseByTime')), 
+                    HalfTimeMean(RmpeByTime(name='RmseByTime')), 
+                    TimeMean(RmpeByTime(name='RmseByTime')),
+                   ]
 
 class Test:
-    def __init__(self, t_span, model, ens_filter, observations, IC=None, delta_forecast=0, Q_std_t = None, metrics=[DistanceByTime(), RmpeByTime(name='RmseByTime'), TimeMean(DistanceByTime()), TimeMean(RmpeByTime(name='RmseByTime'))], reference=None, label=None):
+    def __init__(self, t_span, model, ens_filter, observations, IC=None, delta_forecast=0, Q_std_t = None, metrics = STANDARD_METRICS, reference=None, label=None):
+                     
         self.model=model
         self.t_span=t_span
         self.IC=IC
@@ -259,7 +307,6 @@ class Test:
         state=IC.copy()
         t=[t_span[0]]
         obs_now=[]
-        #state, (mean,std) = ens_filter.forecast(state)
         pre={'state':[], 'mean':[], 'std':[]}
         post={'state':[], 'mean':[], 'std':[]}
         observations=[]
@@ -280,6 +327,11 @@ class Test:
                     obs_now.append(obs)
                     continue
             
+            #print('t[-1]:')
+            #print(t[-1])
+            #print('Q_std_t(t[-1]):')
+            #print(Q_std_t(t[-1]))
+            
             state, (mean,std) = ens_filter.forecast(state, Q_std_t(t[-1]))
             pre['state'].append(state.copy())
             pre['mean'].append(mean)
@@ -292,6 +344,19 @@ class Test:
             post['mean'].append(mean)
             post['std'].append(std)
             observations.append(obs_now)
+            
+            #print("pre['state']:")
+            #print(pre['state'])
+            #print('pre[mean]:')
+            #print(pre['mean'])
+            #print('pre[std]:')
+            #print(pre['std'])
+            #print("post['state']")
+            #print(post['state']) 
+            #print('post[mean]:')
+            #print(post['mean'])
+            #print('post[std]:')
+            #print(post['std'])
             
             for i in range(repeat):
                 tf=t[-1]+delta if delta else t_obs
@@ -340,12 +405,38 @@ class Test:
         
         mean_and_base=np.zeros(mean.shape[:-1]+(self.ens_filter.EnsSize,mean.shape[-1]))
         mean_and_base[...,0,:]=mean
-        mean_and_base[...,np.arange(1,self.ens_filter.EnsSize),np.arange(self.ens_filter.EnsSize-1)]=error_std*np.sqrt(self.ens_filter.forget)
+        
+        #mean_and_base[...,np.arange(1,self.ens_filter.EnsSize),np.arange(self.ens_filter.EnsSize-1)]=error_std*np.sqrt(self.ens_filter.forget)
+        
+        indices=np.flip(np.argsort(error_std), axis=-1)[...,:self.ens_filter.EnsSize-1]
+        adv_slices=np.zeros((indices.ndim,)+ indices.shape, dtype=int)
+        for i, temp in enumerate(adv_slices):
+            temp[...]=np.arange(indices.shape[i])[np.index_exp[...]+(None,)*(indices.ndim-1-i)]
+        temp=mean_and_base[...,1:,:]
+        temp[np.index_exp[...]+(*adv_slices, indices)]=np.take_along_axis(error_std, indices, axis=-1)
+        
+        #print('mean_and_base:')
+        #print(np.matmul(utils.transpose(mean_and_base[...,1:,:]),mean_and_base[...,1:,:]))
+        
         self.IC=self.ens_filter.sampling(mean_and_base)
+        
+        #print('IC:')
+        #print(self.IC)
+        #print('std:')
+        #print(std)
+        #print('error_std:')
+        #print(error_std)
+        #for i, IC in enumerate(self.IC):
+            #print(f'{str(self.ens_filter)} exp number {i}')
+            #print('mean:')
+            #print(IC.mean(axis=-2))
+            #print('std:')
+            #print(IC.std(axis=-2))
+        
         return self.IC
     
 class TwinExperiment:
-    def __init__(self, t_span, model, ens_filters, observations=None, IC=None, delta_forecast=0, Q_std_t = None, metrics=[DistanceByTime(), RmpeByTime(name='RmseByTime'), TimeMean(DistanceByTime()), TimeMean(RmpeByTime(name='RmseByTime'))], reference=None):
+    def __init__(self, t_span, model, ens_filters, observations=None, IC=None, delta_forecast=0, Q_std_t = None, metrics = STANDARD_METRICS, reference=None):
         self.model=model
         self.t_span=t_span
         self.IC=IC
@@ -366,7 +457,6 @@ class TwinExperiment:
             #print(test.)
         
     def build_tests(self):
-        #self.tests=[Test(self.t_span, self.model, ens_filter, self.observations, self.IC, self.delta_forecast, self.Q_std_t, self.metrics, self.reference) for ens_filter in self.ens_filters]
         self.tests=[]
         for ens_filter in self.ens_filters:
             metrics=deepcopy(self.metrics)
@@ -376,7 +466,7 @@ class TwinExperiment:
     def build_truth(self, IC, t_span=None, delta=0, Q_std=None):
         if t_span is None:
             t_span=self.t_span
-        if delta==0:            
+        if delta==0 or Q_std is None:            
             _, self.reference = self.model(t_span, IC)
         else:
             t0=t_span[0]
@@ -384,19 +474,21 @@ class TwinExperiment:
             segments=[]
             for t in np.arange(t0+delta,t_span[1]+delta*0.5,delta):
                 state, segment = self.model([t0,t], state)
-                error=np.random.normal(size=state.shape)*std
+                error=np.random.normal(size=state.shape)*Q_std
                 segments.append((error,segment))
                 t0=t
                 state=state+error
-            t=np.concatenate([segments[0][1].t]+[segment[1].t[1:] for segment in segments])
-            y=np.concatenate([segments[0][1].y + segments[0][0]*(segments[0][1].t-segments[0][1].t[0])/delta] + [segment[1].y[1:] + segment[0]*(segment[1].t[1:]-segment[1].t[0])/delta for segment in segments], axis=-1)
+            t=np.concatenate([segments[0][1].t]+[segment[1].t[1:] for segment in segments[1:]])
+            y=np.concatenate([segments[0][1].y + segments[0][0][...,None]*(segments[0][1].t-segments[0][1].t[0])/delta] + [segment[1].y[...,1:] + segment[0][...,None]*(segment[1].t[1:]-segment[1].t[0])/delta for segment in segments[1:]], axis=-1)
             
             my_interpolants=[]
             for seg_error, seg_sol in segments:
-                for interpolant in enumerate(seg.sol.interpolants):
-                    my_interpolants.append(MyDenseOutput(interpolant, seg_error.flatten()/(seg_sol.t[-1]-seg_sol.t[0])*(interpolant.t_min-seg_sol.t[0]), seg_error.flatten()/(seg_sol.t[-1]-seg_sol.t[0])*(interpolant.t_max-seg_sol.t[0])))
-                    
-            sol=MyOdeSolution(np.concatenate([segments[0][1].sol.ts]+[segment[1].sol.ts[1:] for segment in segments]),
+                for interpolant in seg_sol.sol.interpolants:
+                    my_interpolants.append(MyDenseOutput(interpolant, 
+                                                         delta_min = seg_error.flatten()/delta*(interpolant.t_min-seg_sol.t[0]),
+                                                         delta_max = seg_error.flatten()/delta*(interpolant.t_max-seg_sol.t[0])))
+            
+            sol=MyOdeSolution(np.concatenate([segments[0][1].sol.ts]+[segment[1].sol.ts[1:] for segment in segments[1:]]),
                               my_interpolants,
                               IC.shape)
             self.reference=OdeResult(t=t, y=y, sol=sol)
@@ -422,13 +514,21 @@ class TwinExperiment:
         error_std=truth_0.copy()
         error_std[...]=std
         
-        #mean=truth_0+np.random.normal(size=(n_experiments,)+truth_0.shape)*error_std
-        mean=truth_0+np.random.normal(size=truth_0.shape)*error_std
+        mean=truth_0+np.random.normal(size=(n_experiments,)+truth_0.shape)*error_std
+        #print('truth_0:')
+        #print(truth_0)
+        #print('mean:')
+        #print(mean)
+        #mean=truth_0+np.random.normal(size=truth_0.shape)*error_std
+        #print(mean)
         for test in self.tests:
             test.build_IC(std=error_std, mean=mean)
             
     def table(self, ivar=None):
-        array=[test.metrics_result]
+        array=[[ variable,  "\n".join([str(metric) for metric in self.tests[0].metrics_result])] + 
+               ["\n".join([str(metric.result[variable].item()) for metric in test.metrics_result]) for test in self.tests] for variable in range(len(self.tests[0].metrics_result[0].result))]
+        headers=['Variable', 'Metric']+[str(test.ens_filter) for test in self.tests]
+        print(tabulate(array,headers=headers, tablefmt="fancy_grid"))
         
     
     def plot(self, ivar=0, draw_ens=False):
@@ -449,15 +549,19 @@ class TwinExperiment:
             
             time=np.repeat(test.result.t,2)
             
-            array=np.stack([test.result.pre['mean'][ivar],test.result.post['mean'][ivar]],axis=-1)
+            array=np.stack([test.result.pre['mean'][...,ivar,:],test.result.post['mean'][...,ivar,:]],axis=-1)
             array=array.mean(tuple(range(array.ndim-2)))
+            
+            #print('plot mean:')
+            #print(array)
+            
             line,=ax.plot(time, array.flatten(), label=test.label)
             
-            array=np.stack([test.result.pre['mean'][ivar]+test.result.pre['std'][ivar], test.result.post['mean'][ivar]+test.result.post['std'][ivar]],axis=-1)
+            array=np.stack([test.result.pre['mean'][...,ivar,:]+test.result.pre['std'][...,ivar,:], test.result.post['mean'][...,ivar,:]+test.result.post['std'][...,ivar,:]],axis=-1)
             array=array.mean(tuple(range(array.ndim-2)))
             ax.plot(time, array.flatten(), '--', color=line.get_color(), label=test.label+' std')
             
-            array=np.stack([test.result.pre['mean'][ivar]-test.result.pre['std'][ivar], test.result.post['mean'][ivar]-test.result.post['std'][ivar]],axis=-1)
+            array=np.stack([test.result.pre['mean'][...,ivar,:]-test.result.pre['std'][...,ivar,:], test.result.post['mean'][...,ivar,:]-test.result.post['std'][...,ivar,:]],axis=-1)
             array=array.mean(tuple(range(array.ndim-2)))
             ax.plot(time, array.flatten(), '--', color=line.get_color())
             
@@ -470,7 +574,7 @@ class TwinExperiment:
             ax_number+=1
             ax=ax_list[ax_number]
             
-            array=np.stack([test.result.pre['std'][ivar],test.result.post['std'][ivar]],axis=-1)
+            array=np.stack([test.result.pre['std'][...,ivar,:],test.result.post['std'][...,ivar,:]],axis=-1)
             array=array.mean(tuple(range(array.ndim-2)))
             ax.plot(time, array.flatten(), color=line.get_color(), label=test.label)
             
@@ -481,6 +585,7 @@ class TwinExperiment:
                 
                 #print(str(metric))
                 #print(metric.result[ivar])
+                
                 ax.plot(test.result.t, metric.result[ivar], color=line.get_color(), label=test.label)
         
         ax_number=-1
@@ -494,7 +599,7 @@ class TwinExperiment:
         
         ax_number+=1
         ax=ax_list[ax_number]
-        ax.set_title('STD')
+        ax.set_title(f'STD Variable {ivar}')
         ax.set_xlabel('Time')
         ax.set_ylabel('y')
         ax.legend()

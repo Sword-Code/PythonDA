@@ -81,35 +81,56 @@ class First_vars(DA.Observation):
     def H(self, state):
         return state[...,:self.nvars]
     
+class Obs_by_index(DA.Observation):
+    def __init__(self, obs, std, indices=(0,)):
+        super().__init__(obs, std)
+        self.indices=indices
+        
+    def H(self, state):
+        return state[...,self.indices]
+    
 EnsSize=31
 N=30
-nvars=3
+nvars=10
+indices=range(0,N,N//nvars)
 obs_std=1.0
 delta_obs=0.2
-t_span=[0.0,10.0]
-error_std=np.exp(-np.arange(N))*1.0
+t_span=[0.0,20.0]
 
-ens_filters=[Seik(EnsSize, forget=1.0),
+#error_std=np.flip(np.exp(-np.arange(N)))*0.5
+error_std=np.exp(-np.arange(N)*1.0)*1.0
+error_std[error_std<1.0e-3]=1.0e-3
+
+Q_std=error_std*0.02
+Q_std[Q_std<1.0e-4]=1.0e-4
+Q_std=None
+
+#obs=First_vars(np.zeros(nvars),np.ones(nvars)*obs_std, nvars=nvars)
+obs=Obs_by_index(np.zeros(nvars),np.ones(nvars)*obs_std, indices=indices)
+
+ens_filters=[
+             Seik(EnsSize, forget=1.0),
              Ghosh(EnsSize, order=5, forget=1.0),
-             GhoshV1(EnsSize, order=5, forget=1.0),
-             GhoshV2(EnsSize, order=5, forget=1.0)
+             #GhoshV1(EnsSize, order=5, forget=1.0),
+             #GhoshV2(EnsSize, order=5, forget=1.0),
              ]
 
 model=Lorentz96(F=8)
 
-obs=First_vars(np.zeros(nvars),np.ones(nvars)*obs_std, nvars=nvars)
+Q_std_t=lambda t:None if t==0 else Q_std
+test=DA.TwinExperiment(t_span, model, ens_filters, Q_std_t=Q_std_t)
 
-test=DA.TwinExperiment(t_span, model, ens_filters)
-
-IC_truth,_ =model([0.0,10.0],[0.01]+[0.0]*(N-1))
-test.build_truth(IC_truth)
+IC_truth,_ =model([0.0,20.0],[0.01]+[0.0]*(N-1))
+test.build_truth(IC_truth, delta=delta_obs, Q_std=Q_std)
 test.build_obs(np.arange(t_span[0]+delta_obs,t_span[1],delta_obs), obs)
 test.build_tests()
-test.build_ICs(error_std)
+test.build_ICs(error_std, n_experiments=500)
 
 test.run()
 
+test.table()
+
 test.plot(ivar=0)
-test.plot(ivar=4)
-test.plot(ivar=15)
+#test.plot(ivar=4)
+#test.plot(ivar=15)
 

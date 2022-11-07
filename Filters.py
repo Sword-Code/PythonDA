@@ -7,6 +7,23 @@ class Seik(EnsFilter):
     def __init__(self, EnsSize, weights=None, forget=1.0):
         super().__init__(EnsSize, weights, forget)
         self.TTW1T=np.diag(1.0/self.weights[1:])-np.ones([EnsSize-1]*2)
+        
+    def forecast(self, state, Q_std=None):
+        self.cov1=self.TTW1T*self.forget
+        if not Q_std is None:
+            LT=state[...,1:,:]-np.average(state, weights=self.weights, axis=-2)[...,None,:]
+            LTL1=np.linalg.inv(np.matmul(LT, utils.transpose(LT)))
+            sqrtQL=np.matmul(LTL1, LT * Q_std[...,None,:])
+            cov=np.linalg.inv(self.cov1) + np.matmul(sqrtQL, utils.transpose(sqrtQL))
+            
+            eigenvalues, eigenvectors = np.linalg.eigh(cov)
+            cov1sqrt=eigenvectors/np.sqrt(eigenvalues[...,None,:])
+            self.cov1=np.matmul(cov1sqrt,utils.transpose(cov1sqrt))
+            
+            #print('eigenvalues forecast:')
+            #print(eigenvalues)
+            
+        return state, self._mean_std(state)
     
     def analysis(self, state, obs):
         
@@ -15,7 +32,7 @@ class Seik(EnsFilter):
         #print('cov:')
         #print(np.cov(state, rowvar=False, aweights=self.weights))
         
-        forecast_cov1=self.TTW1T*self.forget
+        forecast_cov1=self.cov1
         Hstate=obs.H(state)
         
         #print('Hstate:')
@@ -51,9 +68,20 @@ class Seik(EnsFilter):
         #print('cov1:')
         #print(cov1)
         #print('cov:')
-        #print(state[...,1:,:].T@np.linalg.inv(cov1)@state[...,1:,:])
+        #print(np.matmul(utils.transpose(state[...,1:,:]),np.linalg.inv(cov1)@state[...,1:,:]))
+        
+        #eigenvalues, eigenvectors = np.linalg.eigh(forecast_cov1)
+        #print('eigenvalues forecast 2:')
+        #print(eigenvalues)
+        #eigenvalues, eigenvectors = np.linalg.eigh(HLTR1HL[...,1:,:])
+        #print('eigenvalues HLTR1HL:')
+        #print(eigenvalues)
         
         eigenvalues, eigenvectors = np.linalg.eigh(cov1)
+        
+        #print('eigenvalues analisis:')
+        #print(eigenvalues)
+        
         change_of_base=utils.transpose(eigenvectors/np.sqrt(eigenvalues[...,None,:]))
         
         #print('cov1_eig:')
@@ -66,15 +94,18 @@ class Seik(EnsFilter):
         state[...,1:,:]=np.matmul(change_of_base,state[...,1:,:])
         
         #print('cov_2:')
-        #print(state[...,1:,:].T@state[...,1:,:])
+        #print(np.matmul(utils.transpose(state[...,1:,:]),state[...,1:,:]))
         
         #####
         base_coef=np.matmul(HLTR1HL[...,0:1,:],utils.transpose(change_of_base))
         #####
         
         state[...,0:1,:]+=np.matmul(base_coef,state[...,1:,:])
-        
         output_state=self.sampling(state)
+        
+        #print('output_state:')
+        #print(output_state)
+        
         return output_state, self._mean_std(output_state, mean=state[...,0,:]) 
     
     def sampling(self, mean_and_base):
@@ -82,7 +113,10 @@ class Seik(EnsFilter):
         omega[...,0,:]=self.sqrt_weights
         omega=utils.ortmatrix(omega,1)
         
-        #print((omega @ omega.T)[omega @ omega.T>1e-5])
+        #print('omega:')
+        #print(omega)
+        #print('omega^2:')
+        #print(np.matmul(omega, utils.transpose(omega)))#[omega @ omega.T>1e-5])
         
         change_of_base = omega[...,1:,:]/self.sqrt_weights
         return np.matmul(utils.transpose( change_of_base), mean_and_base[...,1:,:] ) + mean_and_base[...,0:1,:]
@@ -156,9 +190,41 @@ class Ghosh(EnsFilter):
         state/=np.sqrt(self.forget)
         if not Q_std is None:
             self._mean_and_base(state)
-            sqrtQL=state[...,1:,:] * Q_std[...,None,:]
-            cov1=self.TTW1T+np.matmul(sqrtQL,utils.transpose(sqrtQL))
+            sqrtQL=state[...,1:,:] / Q_std[...,None,:]
+            
+            #print('Q_std:')
+            #print(Q_std)
+            
+            LTQ1L=np.matmul(sqrtQL,utils.transpose(sqrtQL))
+            cov1=self.TTW1T+LTQ1L
+            
+            #eigenvalues, eigenvectors = np.linalg.eigh(self.TTW1T)
+            #print('eigenvalues TTW1T:')
+            #print(eigenvalues) 
+            #eigenvalues, eigenvectors = np.linalg.eigh(LTQ1L)
+            #print('eigenvalues LTQ1L:')
+            #print(eigenvalues) 
+            
             eigenvalues, eigenvectors = np.linalg.eigh(cov1)
+            
+            #print('eigenvalues smoother:')
+            #print(eigenvalues) 
+            
+            #cov1=eigenvectors/np.sqrt(eigenvalues[...,None,:])
+            cov1=np.matmul(self.TTW1T,eigenvectors/np.sqrt(eigenvalues[...,None,:]))
+            cov1=np.matmul(cov1,utils.transpose(cov1))
+            
+            #eigenvalues, eigenvectors = np.linalg.eigh(cov1)
+            #print('eigenvalues smoother1:')
+            #print(eigenvalues) 
+            
+            #cov1=self.TTW1T-np.matmul(np.matmul(self.TTW1T,cov1),self.TTW1T)
+            cov1=self.TTW1T-cov1
+            eigenvalues, eigenvectors = np.linalg.eigh(cov1)
+            
+            #print('eigenvalues cov1:')
+            #print(eigenvalues)
+            
             change_of_base=utils.transpose(eigenvectors/np.sqrt(eigenvalues[...,None,:]))
             change_of_base=np.matmul(eigenvectors,change_of_base)
             state[...,1:,:]=np.matmul(change_of_base,state[...,1:,:])
@@ -191,7 +257,6 @@ class Ghosh(EnsFilter):
         #####
         
         state[...,0:1,:]+=np.matmul(base_coef,state[...,1:,:])
-        
         output_state=self.sampling(state)
         
         #print(self._mean_std(output_state, mean=state[...,0,:]))
@@ -229,7 +294,7 @@ class Ghosh(EnsFilter):
         #print('omega:')
         #print(omega)
         #print('omega^2:')
-        #print((omega @ omega.T)[omega @ omega.T>1e-5])
+        #print(np.matmul(omega, utils.transpose(omega)))#[omega @ omega.T>1e-5])
         
         change_of_base = np.matmul(eigenvectors[...,:,::-1],omega[...,1:,:] /self.sqrt_weights)
         return np.matmul(utils.transpose( change_of_base), mean_and_base[...,1:,:] ) + mean_and_base[...,0:1,:]
@@ -282,6 +347,30 @@ class GhoshV2(Ghosh):
         ensemble[...,1:,:]=np.matmul(self.T,(ensemble-ensemble[...,0:1,:]))
         ensemble[...,0,:]=mean
         return ensemble 
+    
+    def forecast(self, state, Q_std=None):
+        state/=np.sqrt(self.forget)
+        if not Q_std is None:
+            TTW1T=np.identity(self.EnsSize-1)
+            temp=np.average(state, axis=-2,weights=self.weights)
+            temp=(state-temp[...,None,:])*self.sqrt_weights[:,None]
+            eigenvalues, eigenvectors = np.linalg.eigh(np.matmul(temp,utils.transpose(temp)))
+            self.T=utils.transpose(eigenvectors[...,:,-1:0:-1])*self.sqrt_weights
+        
+            self._mean_and_base(state)
+            sqrtQL=state[...,1:,:] / Q_std[...,None,:]
+            LTQ1L=np.matmul(sqrtQL,utils.transpose(sqrtQL))
+            cov1=TTW1T+LTQ1L
+            eigenvalues, eigenvectors = np.linalg.eigh(cov1)
+            cov1=utils.transpose(eigenvectors/eigenvalues[...,None,:])
+            cov1=np.matmul(eigenvectors,cov1)
+            cov1=np.matmul(np.matmul(TTW1T,cov1),LTQ1L)
+            eigenvalues, eigenvectors = np.linalg.eigh(cov1)           
+            change_of_base=utils.transpose(eigenvectors/np.sqrt(eigenvalues[...,None,:]))
+            change_of_base=np.matmul(eigenvectors,change_of_base)
+            state[...,1:,:]=np.matmul(change_of_base,state[...,1:,:])
+            state=self.sampling(state)
+        return state, self._mean_std(state)
     
     def analysis(self, state, obs):
         Hstate=obs.H(state)
