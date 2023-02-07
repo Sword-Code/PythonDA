@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.integrate._ivp.base import ConstantDenseOutput, DenseOutput
 from scipy.integrate._ivp.ivp import OdeResult
-from scipy.integrate import OdeSolution
+from scipy.integrate import OdeSolution, solve_ivp
 import itertools
 from copy import deepcopy
 import matplotlib.pyplot as plt
@@ -21,6 +21,17 @@ class Observation:
     
     def sqrtR1(self, Hbase):
         return Hbase*self.std1
+    
+class ObsByIndex(Observation):
+    def __init__(self, obs, std, indices=None):
+        super().__init__(obs, std)
+        if indices is None:
+            self.indices=np.arange(obs.shape[-1])
+        else:
+            self.indices=indices
+        
+    def H(self, state):
+        return state[...,self.indices]
     
 class Multiobs(Observation):
     def __init__(self, observations):
@@ -68,8 +79,16 @@ class EnsFilter:
         mean=mean[...,None,:]
         anomalies=ensemble-mean
         std=np.sqrt(np.average(anomalies**2,axis=-2,weights=self.weights))
-        mean=mean[...,0,:]        
+        mean=mean[...,0,:]  
+        #print(std[0,:2])
         return mean, std
+    
+    def __repr__(self):
+        string=f'EnsFilter({self.EnsSize}'
+        if self.forget!=1.0:
+            string+=f', forget={self.forget}'
+        string+=')'
+        return string
     
 class utils:
     @staticmethod
@@ -126,6 +145,45 @@ class Model:
     def __call__(self, t_span, state):
         return state, OdeResult(t=np.array(t_span), y=np.stack([state]*2, axis=-1), sol=MyOdeSolution(t_span,[ConstantDenseOutput(t_span[0], t_span[1], state.flatten().copy())], state.shape))
     
+class Lorentz96(Model):
+    def __init__(self, F): #, atol=None):
+        self.F=F
+        #if atol is None:
+            #self.atol=1.0e-6
+        #else:
+            #self.atol=atol
+    
+    def _L96_flat(self,t,x):
+        N,m=self.N,self.m
+        d = np.zeros([N,m])
+        x_matrix=x.reshape([m,N]).T
+        xp1=np.zeros([N,m])
+        xp1[0]=x_matrix[-1]
+        xp1[1:]=x_matrix[:-1]
+        xm2=np.zeros([N,m])
+        xm2[:-2]=x_matrix[2:]
+        xm2[-2:]=x_matrix[:2]
+        xm1=np.zeros([N,m])
+        xm1[:-1]=x_matrix[1:]
+        xm1[-1]=x_matrix[0]
+        d=(xp1-xm2)*xm1-x_matrix+self.F
+        return d.T.flatten()
+    
+    def __call__(self, t_span, state):
+        t_span=np.array(t_span)
+        state=np.array(state)
+        self.N=state.shape[-1]
+        x=state.reshape([-1,self.N])
+        self.m=x.shape[0]
+        x=x.flatten()
+        
+        sol= solve_ivp(self._L96_flat, t_span, x, dense_output=True)#, atol=self.atol)
+        t=sol.t
+        y=sol.y.reshape(state.shape+(-1,))
+        mysol=MyOdeSolution(sol.sol.ts,sol.sol.interpolants, state.shape)
+        
+        return y[...,-1], OdeResult(t=t, y=y, sol=mysol)
+    
 class MyDenseOutput(DenseOutput):
     def __init__(self, interpolant, delta_min, delta_max):
         super().__init__(interpolant.t_old, interpolant.t)
@@ -181,7 +239,7 @@ class RmpeByTime(Metric):
         self.index=index
         
     def _call(self, result, reference):
-        distance=reference.sol(result.t ) - result.pre['mean']
+        distance=np.abs(reference.sol(result.t ) - result.pre['mean'])
         if self.index is None:
             distance[...]=np.mean(distance**self.p, axis=-2, keepdims=True)**(1/self.p)
         else:
@@ -314,6 +372,7 @@ class Test:
         sorted_obs=list(self.observations)
         sorted_obs.sort(key=lambda x:x[0])
         for t_obs, obs in sorted_obs+[(t_span[1], None)]:
+            #print(t_obs)
             if t_obs<t_span[0]: continue
             if t_obs>t_span[1]: break
             
@@ -350,13 +409,13 @@ class Test:
             #print('pre[mean]:')
             #print(pre['mean'])
             #print('pre[std]:')
-            #print(pre['std'])
+            #print(pre['std'][-1][0, :2])
             #print("post['state']")
             #print(post['state']) 
             #print('post[mean]:')
             #print(post['mean'])
             #print('post[std]:')
-            #print(post['std'])
+            #print(post['std'][-1][0, :2])
             
             for i in range(repeat):
                 tf=t[-1]+delta if delta else t_obs
@@ -403,11 +462,15 @@ class Test:
         error_std=mean.copy()
         error_std[...]=std
         
+        #print('error_std:')
+        #print(error_std[:,:2])
+        
         mean_and_base=np.zeros(mean.shape[:-1]+(self.ens_filter.EnsSize,mean.shape[-1]))
         mean_and_base[...,0,:]=mean
         
         #mean_and_base[...,np.arange(1,self.ens_filter.EnsSize),np.arange(self.ens_filter.EnsSize-1)]=error_std*np.sqrt(self.ens_filter.forget)
         
+        ###questa parte e' sbagliata
         indices=np.flip(np.argsort(error_std), axis=-1)[...,:self.ens_filter.EnsSize-1]
         adv_slices=np.zeros((indices.ndim,)+ indices.shape, dtype=int)
         for i, temp in enumerate(adv_slices):
@@ -416,12 +479,13 @@ class Test:
         temp[np.index_exp[...]+(*adv_slices, indices)]=np.take_along_axis(error_std, indices, axis=-1)
         
         #print('mean_and_base:')
+        #print(mean_and_base[0,:,:2])
         #print(np.matmul(utils.transpose(mean_and_base[...,1:,:]),mean_and_base[...,1:,:]))
         
         self.IC=self.ens_filter.sampling(mean_and_base)
         
-        #print('IC:')
-        #print(self.IC)
+        print('IC:')
+        print(self.IC[0,:,:2])
         #print('std:')
         #print(std)
         #print('error_std:')
@@ -531,86 +595,104 @@ class TwinExperiment:
         print(tabulate(array,headers=headers, tablefmt="fancy_grid"))
         
     
-    def plot(self, ivar=0, draw_ens=False):
-        fig, ax_list = plt.subplots(2+len(self.tests[0].draw_metrics), sharex=True, figsize=[12.8,9.6])
-        ax=ax_list[0]
-        ax.plot(self.reference.t, self.reference.y[ivar], 'k', label='Truth')
-        for iobs, (t, obs) in enumerate(self.observations):
-            if obs.obs.shape[-1]>ivar:
-                obs_line,=ax.plot([t],obs.obs[ivar], 'go')
-                if iobs==0:
-                    obs_line.set_label('Observations')
-        for test in self.tests:
+    def plot(self, ivar=0, iexp=np.s_[:], draw_var=True, draw_std=True, draw_metrics=True, draw_ens=False, show=True, save=None):
+        fig, ax_list = plt.subplots(int(draw_var)+int(draw_std)+int(draw_metrics)*len(self.tests[0].draw_metrics), sharex=True, squeeze=False, figsize=[12.8,4.8+4.8*int(draw_metrics)])
+        ax_list=ax_list.flatten()
+        
+        if draw_var:
+            ax=ax_list[0]
+            ax.plot(self.reference.t, self.reference.y[ivar], 'k', label='Truth')
+            for iobs, (t, obs) in enumerate(self.observations):
+                #if obs.obs.shape[-1]>ivar:
+                if ivar in obs.indices:
+                    i=tuple(obs.indices).index(ivar)
+                    obs_line,=ax.plot([t],obs.obs[i], 'go')
+                    if iobs==0:
+                        obs_line.set_label('Observations')
+                        
+        for itest, test in enumerate(self.tests):
+            color=f'C{itest % 10}'
             ax_number=-1
             
-            
-            ax_number+=1
-            ax=ax_list[ax_number]
-            
-            time=np.repeat(test.result.t,2)
-            
-            array=np.stack([test.result.pre['mean'][...,ivar,:],test.result.post['mean'][...,ivar,:]],axis=-1)
-            array=array.mean(tuple(range(array.ndim-2)))
-            
-            #print('plot mean:')
-            #print(array)
-            
-            line,=ax.plot(time, array.flatten(), label=test.label)
-            
-            array=np.stack([test.result.pre['mean'][...,ivar,:]+test.result.pre['std'][...,ivar,:], test.result.post['mean'][...,ivar,:]+test.result.post['std'][...,ivar,:]],axis=-1)
-            array=array.mean(tuple(range(array.ndim-2)))
-            ax.plot(time, array.flatten(), '--', color=line.get_color(), label=test.label+' std')
-            
-            array=np.stack([test.result.pre['mean'][...,ivar,:]-test.result.pre['std'][...,ivar,:], test.result.post['mean'][...,ivar,:]-test.result.post['std'][...,ivar,:]],axis=-1)
-            array=array.mean(tuple(range(array.ndim-2)))
-            ax.plot(time, array.flatten(), '--', color=line.get_color())
-            
-            if draw_ens:
-                for member_pre, member_post in zip(test.result.pre['state'].reshape((-1,)+test.result.pre['state'].shape[-2:]),test.result.post['state'].reshape((-1,)+test.result.pre['state'].shape[-2:])):
-                    member_line,=ax.plot(time, np.stack([member_pre[ivar],member_post[ivar]],axis=-1).flatten(), ':', color=line.get_color(), alpha=0.2)
-                member_line.set_label(test.label + ' ensemble')
-                
-                
-            ax_number+=1
-            ax=ax_list[ax_number]
-            
-            array=np.stack([test.result.pre['std'][...,ivar,:],test.result.post['std'][...,ivar,:]],axis=-1)
-            array=array.mean(tuple(range(array.ndim-2)))
-            ax.plot(time, array.flatten(), color=line.get_color(), label=test.label)
-            
-            #print(test.label)
-            for metric in test.draw_metrics:
+            if draw_var:
                 ax_number+=1
                 ax=ax_list[ax_number]
                 
-                #print(str(metric))
-                #print(metric.result[ivar])
+                time=np.repeat(test.result.t,2)
                 
-                ax.plot(test.result.t, metric.result[ivar], color=line.get_color(), label=test.label)
+                array=np.stack([test.result.pre['mean'][..., iexp, ivar,:],test.result.post['mean'][...,iexp, ivar,:]],axis=-1)
+                if array.ndim>=2:
+                    array=array.mean(tuple(range(array.ndim-2)))
+                
+                #print('plot mean:')
+                #print(array)
+                
+                line,=ax.plot(time, array.flatten(), label=test.label)
+                
+                array_u=np.stack([test.result.pre['mean'][...,iexp, ivar,:]+test.result.pre['std'][...,iexp, ivar,:], test.result.post['mean'][...,iexp, ivar,:]+test.result.post['std'][...,iexp, ivar,:]],axis=-1)
+                if array_u.ndim>=2:
+                    array_u=array_u.mean(tuple(range(array_u.ndim-2)))
+                #ax.plot(time, array_u.flatten(), '--', color=color, label=test.label+' std')
+                
+                array_d=np.stack([test.result.pre['mean'][...,iexp, ivar,:]-test.result.pre['std'][...,iexp, ivar,:], test.result.post['mean'][...,iexp, ivar,:]-test.result.post['std'][...,iexp, ivar,:]],axis=-1)
+                if array_d.ndim>=2:
+                    array_d=array_d.mean(tuple(range(array_d.ndim-2)))
+                #ax.plot(time, array_d.flatten(), '--', color=color)
+                
+                ax.fill_between(time, array_u.flatten(), array_d.flatten(), alpha=0.5, label=test.label+' std')
+                
+                if draw_ens: #to be correct after adding iexp
+                    for member_pre, member_post in zip(test.result.pre['state'].reshape((-1,)+test.result.pre['state'].shape[-2:]),test.result.post['state'].reshape((-1,)+test.result.pre['state'].shape[-2:])):
+                        member_line,=ax.plot(time, np.stack([member_pre[ivar],member_post[ivar]],axis=-1).flatten(), ':', color=color, alpha=0.2)
+                    member_line.set_label(test.label + ' ensemble')
+                
+            if draw_std:
+                ax_number+=1
+                ax=ax_list[ax_number]
+                
+                array=np.stack([test.result.pre['std'][...,iexp, ivar,:],test.result.post['std'][...,iexp, ivar,:]],axis=-1)
+                if array.ndim>=2:
+                    array=array.mean(tuple(range(array.ndim-2)))
+                ax.plot(time, array.flatten(), color=color, label=test.label)
+            
+            if draw_metrics:
+                for metric in test.draw_metrics:
+                    ax_number+=1
+                    ax=ax_list[ax_number]
+                    
+                    #print(str(metric))
+                    #print(metric.result[ivar])
+                    
+                    ax.plot(test.result.t, metric.result[ivar], color=color, label=test.label)
         
         ax_number=-1
         
-        ax_number+=1
-        ax=ax_list[ax_number]
-        ax.set_title(f'Variable {ivar}')
-        ax.set_xlabel('Time')
-        ax.set_ylabel(f'y[{ivar}]')
-        ax.legend()
-        
-        ax_number+=1
-        ax=ax_list[ax_number]
-        ax.set_title(f'STD Variable {ivar}')
-        ax.set_xlabel('Time')
-        ax.set_ylabel('y')
-        ax.legend()
-        
-        for metric in self.tests[0].draw_metrics:
+        if draw_var:
             ax_number+=1
             ax=ax_list[ax_number]
-            ax.set_title(str(metric))
+            ax.set_title(f'Variable {ivar}')
             ax.set_xlabel('Time')
-            ax.set_ylabel(str(metric))
+            ax.set_ylabel(f'y[{ivar}]')
             ax.legend()
+        
+        if draw_std:
+            ax_number+=1
+            ax=ax_list[ax_number]
+            ax.set_title(f'STD Variable {ivar}')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('y')
+            ax.set_ylim(bottom=0.0)
+            ax.legend()
+        
+        if draw_metrics:
+            for metric in self.tests[0].draw_metrics:
+                ax_number+=1
+                ax=ax_list[ax_number]
+                ax.set_title(str(metric))
+                ax.set_xlabel('Time')
+                ax.set_ylabel(str(metric))
+                ax.set_ylim(bottom=0.0)
+                ax.legend()
         
         fig.tight_layout()
         #ax.plot(time, [1/np.sqrt(i*0.5) for i in range(1,len(time)+1)], 'b--')
@@ -622,7 +704,11 @@ class TwinExperiment:
         #print(self.result.post['state'])
         #print(np.stack([self.result.pre['mean'],self.result.post['mean']],axis=-1).flatten())
         
-        plt.show()
+        if save is not None:
+            fig.savefig(save)
+        
+        if show:
+            plt.show()
         
     
         
