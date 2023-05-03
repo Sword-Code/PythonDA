@@ -6,6 +6,7 @@ import itertools
 from copy import deepcopy
 import matplotlib.pyplot as plt
 from tabulate import tabulate
+from time import time
 
 class Observation:
     def __init__(self, obs, std):
@@ -371,6 +372,7 @@ class Test:
         segments=[]
         sorted_obs=list(self.observations)
         sorted_obs.sort(key=lambda x:x[0])
+        
         for t_obs, obs in sorted_obs+[(t_span[1], None)]:
             #print(t_obs)
             if t_obs<t_span[0]: continue
@@ -453,7 +455,7 @@ class Test:
         
         if with_metrics:
             self.compute_metrics()
-                
+            
         return result
     
     def build_IC(self, std=1.0, mean=None):
@@ -470,7 +472,6 @@ class Test:
         
         #mean_and_base[...,np.arange(1,self.ens_filter.EnsSize),np.arange(self.ens_filter.EnsSize-1)]=error_std*np.sqrt(self.ens_filter.forget)
         
-        ###questa parte e' sbagliata
         indices=np.flip(np.argsort(error_std), axis=-1)[...,:self.ens_filter.EnsSize-1]
         adv_slices=np.zeros((indices.ndim,)+ indices.shape, dtype=int)
         for i, temp in enumerate(adv_slices):
@@ -484,8 +485,8 @@ class Test:
         
         self.IC=self.ens_filter.sampling(mean_and_base)
         
-        print('IC:')
-        print(self.IC[0,:,:2])
+        #print('IC:')
+        #print(self.IC[0,:,:2])
         #print('std:')
         #print(std)
         #print('error_std:')
@@ -517,7 +518,10 @@ class TwinExperiment:
     def run(self):
         for test in self.tests:
             print('Running '+ str(test.ens_filter) +'...')
+            timer=time()
             test.run()
+            timer=time()-timer
+            print(str(test.ens_filter)+f' done in {timer} seconds.')
             #print(test.)
         
     def build_tests(self):

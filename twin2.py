@@ -10,7 +10,7 @@ import numpy as np
 import gc
 
 #def plot_results(arrays=None, xtitles=[0.1,0.2,0.3], xticks=[str(x) for x in 2**np.arange(3,7)-1], yticks=[str(x) for x in [0.8,0.9,0.95,1.0]], titles=['MSRE_total','MSRE_observed','MSRE_unobserved']):
-def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_array=None, EnsSize_array=None, titles=['Total RMSE','Observed RMSE','Unobserved RMSE'], cmaps=['seismic_r','YlGn_r'], save=False):
+def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_array=None, EnsSize_array=None, titles=['Total RMSE','Observed RMSE','Unobserved RMSE'], cmaps=['seismic_r','YlGn_r']):
     
     if arrays is None:
         with np.load('Z.npz') as f:
@@ -36,8 +36,8 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         EnsSize_index=np.array([i for i, val in enumerate(arrays['EnsSize_array']) if val in EnsSize_array])       
     
     xtitles=arrays['delta_obs_array'][delta_obs_index]
-    xticks=[str(x) for x in arrays['EnsSize_array'][EnsSize_index]]
-    yticks=[str(x) for x in arrays['forget_array'][forget_index]]+['best']
+    yticks=[str(x) for x in arrays['EnsSize_array'][EnsSize_index]]
+    xticks=[str(x) for x in arrays['forget_array'][forget_index]]+['best']
     
     #arrays['Z']=np.concatenate((arrays['Z'],arrays['Z'].min(axis=2, keepdims=True)),axis=2)
     arrays['Z']=np.concatenate((arrays['Z'],
@@ -52,6 +52,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         for metric, title0 in enumerate(titles):
             title=title0+' '+filtername
             Z=arrays['Z'][truth_t_index[:,None,None,None],delta_obs_index[:,None,None],forget_index[:,None], EnsSize_index,:, metric]
+            Z=Z.transpose([0,1,3,2,4])
             
             if nfilter>1:
                 Z=Z[...,1]/Z[...,0]
@@ -78,17 +79,17 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
             
             #norm=colors.FuncNorm((lambda x: np.log(x), lambda x: np.exp(x)),vmin=0.25, vmax=4)
             #norm=colors.LogNorm(vmin=vmin, vmax=vmax)
-            fig, axs = plt.subplots(Z.shape[0], Z.shape[1], sharex=True, sharey=True, figsize=(12.8,19.4))
+            fig, axs = plt.subplots(Z.shape[0], Z.shape[1], sharex=True, sharey=True, figsize=(12.8,9.6))
             #im=[[axs[i,j].imshow(Z[i,j], cmap=cmap, vmin=vmin, vmax=vmax, origin='lower') for j in range(Z.shape[1])] for i in range(Z.shape[0])]
             im=[[axs[i,j].imshow(Z[i,j], cmap=cmap, norm=norm, origin='lower') for j in range(Z.shape[1])] for i in range(Z.shape[0])]
             
             for j, xtitle in enumerate(arrays['delta_obs_array'][delta_obs_index]):
                 axs[0,j].set_title(f'{xtitle}')
-                axs[-1,j].set_xlabel('EnsSize')
+                axs[-1,j].set_xlabel('Forget')
                 axs[-1,j].set_xticks([float(x) for x in range(len(xticks))])
                 axs[-1,j].set_xticklabels(xticks, rotation=45)
             for ax in axs[:, 0]:
-                ax.set_ylabel('Forget')
+                ax.set_ylabel('EnsSize')
                 ax.set_yticks([float(x) for x in range(len(yticks))])
                 ax.set_yticklabels(yticks)
             for ax in axs.flatten():
@@ -113,13 +114,14 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
                 cbar.ax.set_yticklabels(ticks_labels)
             
             fig.suptitle(title,fontsize=22)
-            if save:
-                fig.savefig('SAVED/'+title.replace(' ','_'))
+            
+            fig.savefig('SAVED/'+title.replace(' ','_'))
     
     ######## overview #####################
     
     for step in range(1,3):
         Z=arrays['Z'][-1,delta_obs_index[:,None, None], forget_index[:,None], EnsSize_index,:, 1:]
+        Z=Z.transpose([0,2,1,3,4])
         Z=np.concatenate((Z, Z[...,1:2,:]/Z[...,0:1,:]), axis=-2)
         
         Z=Z[...,::step,:]
@@ -127,7 +129,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         
         Z=Z.transpose([-2,-1,0,1, 2]).reshape((-1,)+Z.shape[:3])
         
-        fig, axs = plt.subplots(Z.shape[0], Z.shape[1], sharex=True, sharey=True, figsize=(12.8,19.4))
+        fig, axs = plt.subplots(Z.shape[0], Z.shape[1], sharex=True, sharey=True, figsize=(12.8,9.6))
         
         cmap=cmaps[1]
         vmax=Z[:-2].max()
@@ -173,12 +175,12 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         
         for j, xtitle in enumerate(arrays['delta_obs_array'][delta_obs_index]):
             axs[0,j].set_title(f'{xtitle}')
-            axs[-1,j].set_xlabel('EnsSize')
+            axs[-1,j].set_xlabel('Forget')
             axs[-1,j].set_xticks([float(x) for x in range(len(xticks))])
             axs[-1,j].set_xticklabels(xticks, rotation=45)
         
         for ax, lab in zip(axs[:, 0],['Observed', "Unobserved"]*(Z.shape[0]//2)):
-            ax.set_ylabel('Forget')
+            ax.set_ylabel('EnsSize')
             ax.set_yticks([float(x) for x in range(len(yticks))])
             ax.set_yticklabels(yticks)
             ax.annotate(lab, (0, 0.5), xytext=(-40, 0),
@@ -193,8 +195,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
             
         title=f'Overview_{step}'
         fig.suptitle(title,fontsize=22)
-        if save:
-            fig.savefig('SAVED/'+title.replace(' ','_'))
+        fig.savefig('SAVED/'+title.replace(' ','_'))
     
     ######## overview2 #####################
     if False:
@@ -238,8 +239,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
             
         title='Overview2'
         fig.suptitle(title,fontsize=22)
-        if save:
-            fig.savefig('SAVED/'+title.replace(' ','_'))
+        fig.savefig('SAVED/'+title.replace(' ','_'))
     
     plt.show()
     

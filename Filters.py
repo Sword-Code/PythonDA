@@ -10,7 +10,7 @@ class Seik(EnsFilter):
         
     def forecast(self, state, Q_std=None):
         self.cov1=self.TTW1T*self.forget
-        if not Q_std is None:
+        if Q_std is not None:
             LT=state[...,1:,:]-np.average(state, weights=self.weights, axis=-2)[...,None,:]
             LTL1=np.linalg.inv(np.matmul(LT, utils.transpose(LT)))
             sqrtQL=np.matmul(LTL1, LT * Q_std[...,None,:])
@@ -195,7 +195,7 @@ class Ghosh(EnsFilter):
             mean=np.average(state,axis=-2,weights=self.weights)
             mean=mean[..., None, :]
             state=(state - mean)/np.sqrt(self.forget)+mean
-        if not Q_std is None:
+        if Q_std is not None:
             self._mean_and_base(state)
             sqrtQL=state[...,1:,:] / Q_std[...,None,:]
             

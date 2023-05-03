@@ -86,17 +86,17 @@ class First_vars(DA.Observation):
     def H(self, state):
         return state[...,:self.nvars]
     
-EnsSize=15 #31
+EnsSize=31 #31
 N=62 #30
 nvars=31 #10
 indices=range(0,N,N//nvars)
 obs_std=1.0
-delta_obs=0.1 #0.2
+delta_obs=0.15 #0.2
 t_span=[0.0,20.0]
-forget=0.8
+forget=0.7
 atol=None
 #atol=1.0e-6
-n_experiments=100
+n_experiments=100 #100
 
 #error_std=np.flip(np.exp(-np.arange(N)))*0.5
 #error_std=np.exp(-np.arange(N)*1.0)*1.0
