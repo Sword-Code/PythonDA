@@ -263,7 +263,7 @@ if __name__=='__main__':
     obs_std=1.0
     n_experiments=100
     error_std=np.ones(N)*5.0
-    model=DA.Lorentz96(F=8)
+    model=DA.Lorenz96(F=8)
 
     obs_each=2
     indices=range(0,N,obs_each)

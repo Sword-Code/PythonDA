@@ -129,7 +129,7 @@ class Seik(EnsFilter):
         return string
 
 class Ghosh(EnsFilter):
-    def __init__(self, EnsSize, weights_omega=None, forget=1.0, order=None, symm=True):
+    def __init__(self, EnsSize, weights_omega=None, forget=1.0, order=5, symm=True):
         if weights_omega is None:
             if order<=1:
                 raise NotImplementedError

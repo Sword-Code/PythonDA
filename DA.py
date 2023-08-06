@@ -146,8 +146,8 @@ class Model:
     def __call__(self, t_span, state):
         return state, OdeResult(t=np.array(t_span), y=np.stack([state]*2, axis=-1), sol=MyOdeSolution(t_span,[ConstantDenseOutput(t_span[0], t_span[1], state.flatten().copy())], state.shape))
     
-class Lorentz96(Model):
-    def __init__(self, F): #, atol=None):
+class Lorenz96(Model):
+    def __init__(self, F=8): #, atol=None):
         self.F=F
         #if atol is None:
             #self.atol=1.0e-6
