@@ -8,9 +8,14 @@ import matplotlib.colors as colors
 import numpy as np
 
 import gc
+import os
 
 #def plot_results(arrays=None, xtitles=[0.1,0.2,0.3], xticks=[str(x) for x in 2**np.arange(3,7)-1], yticks=[str(x) for x in [0.8,0.9,0.95,1.0]], titles=['MSRE_total','MSRE_observed','MSRE_unobserved']):
-def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_array=None, EnsSize_array=None, titles=['Total RMSE','Observed RMSE','Unobserved RMSE'], cmaps=['seismic_r','YlGn_r'], save=False):
+def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_array=None, EnsSize_array=None, titles=['Total RMSE','Observed RMSE','Unobserved RMSE'], cmaps=['seismic_r','YlGn_r'], save=False, folder='SAVED'):
+    
+    if save:
+        if not os.path.exists(folder):
+            os.makedirs(folder)
     
     if arrays is None:
         with np.load('Z.npz') as f:
@@ -114,7 +119,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
             
             fig.suptitle(title,fontsize=22)
             if save:
-                fig.savefig('SAVED/'+title.replace(' ','_'))
+                fig.savefig(os.path.join(folder,title.replace(' ','_')))
     
     ######## overview #####################
     
@@ -127,7 +132,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         
         Z=Z.transpose([-2,-1,0,1, 2]).reshape((-1,)+Z.shape[:3])
         
-        fig, axs = plt.subplots(Z.shape[0], Z.shape[1], sharex=True, sharey=True, figsize=(12.8,19.4))
+        fig, axs = plt.subplots(Z.shape[0], Z.shape[1], sharex=True, sharey=True, figsize=(12.8*3/4,19.4*3/4), dpi=300)
         
         cmap=cmaps[1]
         vmax=Z[:-2].max()
@@ -158,6 +163,8 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         im.extend([[axs[i,j].imshow(Z[i,j], cmap=cmap, norm=norm, origin='lower') for j in range(Z.shape[1])] for i in range(Z.shape[0]-2, Z.shape[0])])
         
         cbars=[fig.colorbar(im[i][0], ax=axs[i:i+2], label=label) for i, label in zip(range(0,Z.shape[0],2),lab) ]
+        for cbar, label in zip(cbars,lab):
+            cbar.set_label(label, fontsize=18)
         
         #ticks=cbars[0].ax.get_yticks(minor=True)
         #ticks_labels=[str(tick) for tick in ticks_list]
@@ -173,28 +180,34 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         
         for j, xtitle in enumerate(arrays['delta_obs_array'][delta_obs_index]):
             axs[0,j].set_title(f'{xtitle}')
-            axs[-1,j].set_xlabel('EnsSize')
+            
+            axs[-1,j].set_xlabel('EnsSize', size=14)
             axs[-1,j].set_xticks([float(x) for x in range(len(xticks))])
             axs[-1,j].set_xticklabels(xticks, rotation=45)
+            
+            #for i in range(len(cbars)):
+                #axs[i*2+1,j].set_xlabel('EnsSize', size=14)
+                #axs[i*2+1,j].set_xticks([float(x) for x in range(len(xticks))])
+                #axs[i*2+1,j].set_xticklabels(xticks, rotation=45)
         
-        for ax, lab in zip(axs[:, 0],['Observed', "Unobserved"]*(Z.shape[0]//2)):
-            ax.set_ylabel('Forget')
+        for ax, lab in zip(axs[:, 0],['Assimilated', "Non-assimilated"]*(Z.shape[0]//2)):
+            ax.set_ylabel('Forget', size=14)
             ax.set_yticks([float(x) for x in range(len(yticks))])
             ax.set_yticklabels(yticks)
-            ax.annotate(lab, (0, 0.5), xytext=(-40, 0),
+            ax.annotate(lab, (0, 0.5), xytext=(-50, 0),
                         textcoords='offset points', xycoords='axes fraction',
-                        ha='right', va='center', size=14, rotation=90) 
+                        ha='right', va='center', size=16, rotation=90) 
         for ax in axs.flatten():
             ax.tick_params(length=0.0)
             
         axs[0, len(delta_obs_index)//2].annotate('Obs Frequency', (0.5, 1), xytext=(0, 20),
                                 textcoords='offset points', xycoords='axes fraction',
-                                ha='center', va='bottom', size=14)
+                                ha='center', va='bottom', size=16)
             
         title=f'Overview_{step}'
-        fig.suptitle(title,fontsize=22)
+        #fig.suptitle(title,fontsize=22)
         if save:
-            fig.savefig('SAVED/'+title.replace(' ','_'))
+            fig.savefig(os.path.join(folder,title.replace(' ','_')))
     
     ######## overview2 #####################
     if False:
@@ -239,7 +252,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
         title='Overview2'
         fig.suptitle(title,fontsize=22)
         if save:
-            fig.savefig('SAVED/'+title.replace(' ','_'))
+            fig.savefig(os.path.join(folder,title.replace(' ','_')))
     
     plt.show()
     
