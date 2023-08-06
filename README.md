@@ -62,3 +62,5 @@ Present results by using a table and a plot:
 test.table()
 test.plot()
 ```
+
+See examples in single_twin.py and twin.py.
