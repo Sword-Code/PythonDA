@@ -1,6 +1,6 @@
 import numpy as np
 from DA import Observation
-from DA import utils
+import utils
 from DA import EnsFilter
 
 class Seik(EnsFilter):

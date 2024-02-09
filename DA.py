@@ -8,6 +8,10 @@ import matplotlib.pyplot as plt
 from tabulate import tabulate
 from time import time
 
+from Metrics import DistanceByTime, RmpeByTime, LastTime, HalfTimeMean, TimeMean, LastTime, HalfTimeMean, TimeMean
+import Metrics
+import utils
+
 class Observation:
     def __init__(self, obs, std):
         self.obs=np.array(obs)
@@ -38,6 +42,8 @@ class Multiobs(Observation):
     def __init__(self, observations):
         self.observations=observations
         self.obs=np.concatenate([observation.obs for observation in self.observations], axis=-1)
+        self.std=np.concatenate([observation.std for observation in self.observations], axis=-1)
+        self.std1=np.concatenate([observation.std1 for observation in self.observations], axis=-1)
         
     def H(self, state):
         return np.concatenate([observation.H(state) for observation in self.observations], axis=-1)
@@ -90,45 +96,6 @@ class EnsFilter:
             string+=f', forget={self.forget}'
         string+=')'
         return string
-    
-class utils:
-    @staticmethod
-    def mean_and_base(ensemble, weights=None):        
-        ensemble[...,0,:]=np.average(ensemble,axis=-2,weights=weights)
-        ensemble[...,1:,:]-=ensemble[...,0:1,:]        
-        return ensemble
-    
-    @staticmethod
-    def mean_std(ensemble, weights=None, mean=None):
-        if mean is None:
-            mean=np.average(ensemble,axis=-2,weights=weights)
-        else:
-            mean=mean.copy()    
-        mean=mean[...,None,:]
-        anomalies=ensemble-mean
-        std=np.sqrt(np.average(anomalies**2,axis=-2,weights=weights))
-        mean=mean[...,0,:]
-        return mean, std
-    
-    @staticmethod
-    def transpose(matrices):
-        return matrices.transpose(list(range(len(matrices.shape)-2))+[-1,-2])
-    
-    @staticmethod
-    def ortmatrix(matrices,start):
-        shape=matrices.shape    
-        matrices[...,start:,:]=np.random.normal(size= shape[:-2]+(shape[-2]-start, shape[-1]))
-        #print(matrices)
-        matrices[...,start:,:] /= np.linalg.norm(matrices[...,start:,:], axis=-1, keepdims=True)
-        #print(matrices)
-        for k in range(1,shape[-2]):
-            i=np.amax([k,start])
-            matrices[...,i:,:] -= np.matmul(np.matmul(matrices[...,i:,:],matrices[...,k-1,:, None]),matrices[...,k-1:k,:])
-            #print(matrices)
-            matrices[...,i:,:]/=np.linalg.norm(matrices[...,i:,:], axis=-1, keepdims=True)
-            #print(matrices)
-            
-        return matrices
     
 class MyOdeSolution(OdeSolution):
     def __init__(self,ts, interpolants, shape):
@@ -196,117 +163,7 @@ class MyDenseOutput(DenseOutput):
         delta=(t-self.t_min)/(self.t_max-self.t_min)*self.delta_max + (self.t_max-t)/(self.t_max-self.t_min)*self.delta_min
         return self.interpolant(t)+delta        
 
-class Metric:
-    def __init__(self, delta=0, draw=False, name=None):
-        self.delta= delta
-        self.draw=draw
-        self.name=name
-        
-    def __call__(self, result, reference):
-        if self.delta:
-            raise NotImplementedError
-        else:
-            temp=self._call(result, reference)
-            self.result=temp.mean(axis=tuple(range(temp.ndim-2)))
-            return self.result
-        
-    def _call(self, result, reference):
-        raise NotImplementedError
-    
-    def __str__(self):
-        if self.name is None:
-            return self.__repr__()
-        else:
-            return self.name
-        
-    def __repr__(self):
-        return 'Metric()'
-    
-class DistanceByTime(Metric):
-    def __init__(self, delta=0, draw=True, name=None):
-        super().__init__(delta, draw, name)
-        
-    def _call(self, result, reference):
-        distance=np.abs(reference.sol(result.t ) - result.pre['mean'])
-        return distance
-    
-    def __repr__(self):
-        return 'DistanceByTime()'
-    
-class RmpeByTime(Metric):
-    def __init__(self, p=2, index= None, delta=0, draw=True, name=None):
-        super().__init__(delta, draw, name)
-        self.p=p
-        self.index=index
-        
-    def _call(self, result, reference):
-        distance=np.abs(reference.sol(result.t ) - result.pre['mean'])
-        if self.index is None:
-            distance[...]=np.mean(distance**self.p, axis=-2, keepdims=True)**(1/self.p)
-        else:
-            if type(self.index)==type(0):
-                self.index=(self.index,)
-            distance[...]=np.mean(distance[...,self.index,:]**self.p, axis=-2, keepdims=True)**(1/self.p)
-        return distance
-    
-    def __repr__(self):
-        strings=[]
-        if self.p!=2:
-            strings.append(f'p={self.p}')
-        if not self.index is None:
-            strings.append(f'index={self.index}')
-        return f'RmpeByTime({", ".join(strings)})'
-    
-class Summary(Metric):
-    def __init__(self, metric_by_time, draw=False, name=None):
-        self.metric_by_time= metric_by_time
-        delta=metric_by_time.delta
-        super().__init__(delta, draw, name)
-        
-    def _call(self, result, reference):
-        raise NotImplementedError
-    
-    def __repr__(self):
-        string='Summary(' + str(self.metric_by_time) + ')'
-        return string
 
-class TimeMean(Summary):
-    def __init__(self, metric_by_time, p=2, draw=False, name=None):
-        super().__init__(metric_by_time, draw, name)
-        self.p=p
-        
-    def _call(self, result, reference):
-        distance=self.metric_by_time._call(result, reference)
-        return np.mean(distance**self.p, axis=-1, keepdims=True)**(1/self.p)
-    
-    def __repr__(self):
-        string='TimeMean('+str(self.metric_by_time)
-        if self.p!=2:
-            string+=f', p={self.p}'
-        string+=')'
-        return string
-    
-class LastTime(Summary):        
-    def _call(self, result, reference):
-        distance=self.metric_by_time._call(result, reference)
-        return distance[...,-1:]
-    
-    def __repr__(self):
-        string='LastTime('+str(self.metric_by_time)+')'
-        return string
-    
-class HalfTimeMean(TimeMean):
-    def _call(self, result, reference):
-        distance=self.metric_by_time._call(result, reference)
-        index=distance.shape[-1]//2
-        return np.mean(distance[...,index:]**self.p, axis=-1, keepdims=True)**(1/self.p)
-    
-    def __repr__(self):
-        string='HalfTimeMean('+str(self.metric_by_time)
-        if self.p!=2:
-            string+=f', p={self.p}'
-        string+=')'
-        return string
     
 STANDARD_METRICS = [DistanceByTime(), 
                     RmpeByTime(name='RmseByTime'), 
@@ -350,7 +207,7 @@ class Test:
         for metric in self.metrics:
             #print(self.ens_filter)
             #print(metric(result, reference))
-            metric(result, reference)
+            metric(result, reference, ens_filter=self.ens_filter)
             if metric.draw:
                 self.draw_metrics.append(metric)
             else:
@@ -400,6 +257,7 @@ class Test:
             
             if obs_now:
                 all_obs=Multiobs(obs_now)
+                obs_now=all_obs
                 state, (mean,std) = ens_filter.analysis(state,all_obs)
             post['state'].append(state.copy())
             post['mean'].append(mean)
@@ -444,6 +302,7 @@ class Test:
                     post['state'].append(state.copy())
                     post['mean'].append(mean)
                     post['std'].append(std)
+                    observations.append(obs_now)
         
         pre={'state':np.stack(pre['state'],-1), 'mean':np.stack(pre['mean'],-1), 'std':np.stack(pre['std'],-1)}
         post={'state':np.stack(post['state'],-1), 'mean':np.stack(post['mean'],-1), 'std':np.stack(post['std'],-1)}
@@ -666,6 +525,9 @@ class TwinExperiment:
                     
                     #print(str(metric))
                     #print(metric.result[ivar])
+                    #print(metric)
+                    #print(test.result.t.shape)
+                    #print(metric.result[ivar].shape)
                     
                     ax.plot(test.result.t, metric.result[ivar], color=color, label=test.label)
         

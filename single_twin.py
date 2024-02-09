@@ -2,6 +2,7 @@
 import numpy as np
 import DA
 from Filters import Seik, Ghosh
+from Metrics import LikelihoodByTime
     
 EnsSize=31 #31
 N=62 #30
@@ -48,9 +49,11 @@ ens_filters=[
 metrics=[DA.RmpeByTime(index= None, name='RmseTotByTime'),
          DA.RmpeByTime(index= indices, name='RmseObseervedByTime'),
          DA.RmpeByTime(index= tuple(set(range(N))-set(indices)), name='RmseNotObservedByTime'),
+         LikelihoodByTime(name='LikelihoodByTime'),
         DA.HalfTimeMean(DA.RmpeByTime(index= None), name='RmseTot'),
         DA.HalfTimeMean(DA.RmpeByTime(index= indices), name='RmseObserved'),
         DA.HalfTimeMean(DA.RmpeByTime(index= tuple(set(range(N))-set(indices))), name='RmseNotObserved'),
+        DA.TimeMean(LikelihoodByTime(), name='Likelihood'),
         ]
 
 model=DA.Lorenz96() #, atol=atol)
