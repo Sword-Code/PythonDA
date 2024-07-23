@@ -45,13 +45,6 @@ class Ghosh(EnsFilter):
                 weights[1:2**hdim]=omega[0,1:2**hdim]**2*0.5
                 weights[EnsSize%2+EnsSize//2:EnsSize//2+2**hdim]=weights[EnsSize%2:2**hdim]
                 
-                #print('weights:')
-                #print(weights)
-                #print('omega:')
-                #print(self.omega)
-                #print('omega^2')
-                #print(self.omega @ self.omega.T)
-                
                 self.symm=True                
             else:
                 raise NotImplementedError
@@ -78,38 +71,16 @@ class Ghosh(EnsFilter):
             self._mean_and_base(state)
             sqrtQL=state[...,1:,:] / Q_std[...,None,:]
             
-            #print('Q_std:')
-            #print(Q_std)
-            
             LTQ1L=np.matmul(sqrtQL,utils.transpose(sqrtQL))
             cov1=self.TTW1T+LTQ1L
             
-            #eigenvalues, eigenvectors = np.linalg.eigh(self.TTW1T)
-            #print('eigenvalues TTW1T:')
-            #print(eigenvalues) 
-            #eigenvalues, eigenvectors = np.linalg.eigh(LTQ1L)
-            #print('eigenvalues LTQ1L:')
-            #print(eigenvalues) 
-            
             eigenvalues, eigenvectors = np.linalg.eigh(cov1)
             
-            #print('eigenvalues smoother:')
-            #print(eigenvalues) 
-            
-            #cov1=eigenvectors/np.sqrt(eigenvalues[...,None,:])
             cov1=np.matmul(self.TTW1T,eigenvectors/np.sqrt(eigenvalues[...,None,:]))
             cov1=np.matmul(cov1,utils.transpose(cov1))
-            
-            #eigenvalues, eigenvectors = np.linalg.eigh(cov1)
-            #print('eigenvalues smoother1:')
-            #print(eigenvalues) 
-            
-            #cov1=self.TTW1T-np.matmul(np.matmul(self.TTW1T,cov1),self.TTW1T)
             cov1=self.TTW1T-cov1
-            eigenvalues, eigenvectors = np.linalg.eigh(cov1)
             
-            #print('eigenvalues cov1:')
-            #print(eigenvalues)
+            eigenvalues, eigenvectors = np.linalg.eigh(cov1)
             
             change_of_base=utils.transpose(eigenvectors/np.sqrt(eigenvalues[...,None,:]))
             change_of_base=np.matmul(eigenvectors,change_of_base)
@@ -145,14 +116,9 @@ class Ghosh(EnsFilter):
         state[...,0:1,:]+=np.matmul(base_coef,state[...,1:,:])
         output_state=self.sampling(state)
         
-        #print(self._mean_std(output_state, mean=state[...,0,:]))
-        #print(self._mean_std(output_state))
-        
         return output_state, self._mean_std(output_state, mean=state[...,0,:])
     
     def sampling(self, mean_and_base):
-        #print('presampling')
-        #print(np.diag(mean_and_base[1:,:].T @ mean_and_base[1:,:]))
         
         eigenvalues, eigenvectors = np.linalg.eigh(np.matmul(mean_and_base[...,1:,:],utils.transpose(mean_and_base[...,1:,:])))
         #mean_and_base[...,1:,:] = np.matmul(utils.transpose(eigenvectors[...,:,::-1]), mean_and_base[...,1:,:])
@@ -176,11 +142,6 @@ class Ghosh(EnsFilter):
             omega[...,1:1+ncol, self.EnsSize%2+ncol:]=-omega2
             
         omega=utils.ortmatrix(omega,ncol+1)
-        
-        #print('omega:')
-        #print(omega)
-        #print('omega^2:')
-        #print(np.matmul(omega, utils.transpose(omega)))#[omega @ omega.T>1e-5])
         
         change_of_base = np.matmul(eigenvectors[...,:,::-1],omega[...,1:,:] /self.sqrt_weights)
         return np.matmul(utils.transpose( change_of_base), mean_and_base[...,1:,:] ) + mean_and_base[...,0:1,:]
