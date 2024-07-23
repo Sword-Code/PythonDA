@@ -153,7 +153,7 @@ class LikelihoodByTime(Indicator):
     def __init__(self, delta=0, draw=True, name=None):
         super().__init__(delta, draw, name)
         
-    def _call(self, result, reference, **kwargs):
+    def _call_old(self, result, reference, **kwargs):
         likelihood=[]
         A1=kwargs['ens_filter'].TTW1T
         lndetA1=np.log(np.linalg.det(A1))
@@ -196,6 +196,17 @@ class LikelihoodByTime(Indicator):
             #print('lh')
             #print(likelihood[-1].shape)
             #exit(0)
+                
+        return np.repeat(np.stack(likelihood,-1)[...,None,:], state.shape[-1], axis=-2)
+    
+    def _call(self, result, reference, **kwargs):
+        likelihood=[]
+        ens_filter=kwargs['ens_filter']
+        #A1=ens_filter.TTW1T
+        A1=ens_filter.cov1
+        
+        for t, obs, state in zip(result.t, result.obs, result.pre['state'].transpose((-1,)+tuple(range(result.pre['state'].ndim-1)) )):
+            likelihood.append(utils.log_likelihood(obs, state, A1=A1, mean_and_base=ens_filter._mean_and_base))
                 
         return np.repeat(np.stack(likelihood,-1)[...,None,:], state.shape[-1], axis=-2)
     

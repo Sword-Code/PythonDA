@@ -1,16 +1,18 @@
 import numpy as np
 from DA import Observation
 import utils
-from DA import EnsFilter
+from ._ensfilter import EnsFilter
 
 class Seik(EnsFilter):
-    def __init__(self, EnsSize, weights=None, forget=1.0):
-        super().__init__(EnsSize, weights, forget)
-        self.TTW1T=np.diag(1.0/self.weights[1:])-np.ones([EnsSize-1]*2)
+    def __init__(self, EnsSize, weights=None, forget=1.0, with_autotuning=False, autotuning_bounds=None):
+        super().__init__(EnsSize, weights=weights, forget=forget, with_autotuning=with_autotuning, autotuning_bounds=autotuning_bounds)
         
-    def forecast(self, state, Q_std=None):
-        self.cov1=self.TTW1T*self.forget
+    def forecast(self, state, Q_std=None, forget=None):
+        forget=self._forget_check(forget)
+        self.cov1=self.TTW1T*forget[...,None,None]
         if Q_std is not None:
+            if np.ndim(Q_std)==0:
+                Q_std=np.reshape(Q_std, (1,))
             LT=state[...,1:,:]-np.average(state, weights=self.weights, axis=-2)[...,None,:]
             LTL1=np.linalg.inv(np.matmul(LT, utils.transpose(LT)))
             sqrtQL=np.matmul(LTL1, LT * Q_std[...,None,:])
@@ -22,7 +24,9 @@ class Seik(EnsFilter):
             
             #print('eigenvalues forecast:')
             #print(eigenvalues)
-            
+        
+        if state.ndim==2:
+            self.cov1=self.cov1.reshape(self.cov1.shape[-2:])
         return state, self._mean_std(state)
     
     def analysis(self, state, obs):
@@ -125,5 +129,7 @@ class Seik(EnsFilter):
         string=f'Seik({self.EnsSize}'
         if self.forget!=1.0:
             string+=f', forget={self.forget}'
+        if self.with_autotuning:
+            string+=', with autotuning'
         string+=')'
         return string 

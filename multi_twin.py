@@ -28,8 +28,6 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
     t_span=[0.0,150.0]
     obs_std=1.0
     n_experiments=100
-    #model=Models.Lorenz05(two_scale=True)
-    #model=Models.Lorenz96()
     clim_error=True
     
     if clim_error:
@@ -53,9 +51,6 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
             DA.TimeMean(Metrics.LikelihoodByTime(), name='Likelihood'),
             ]
 
-    #truth_t_array, delta_obs_array, forget_array, EnsSize_array = np.meshgrid([20.0,40.0,60.0], np.linspace(0.1, 0.3, 3), np.linspace(0.7, 1.0, 4), 2**np.arange(3,7)-1, indexing='ij')
-    #for truth_t, delta_obs, forget, EnsSize in zip(truth_t_array.flatten(), delta_obs_array.flatten(), forget_array.flatten(), EnsSize_array.flatten()):
-    
     try:
         with np.load('Z_long'+append_str+'.npz') as f:
             saved={}
@@ -71,11 +66,7 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
     
     Z=[]
     timing=[]
-    #truth_t_array=[20.0, 40.0, 60.0, 80.0]
     delta_obs_array=[0.1, 0.15, 0.2, 0.25, 0.3]
-    #forget_array=[0.5, 0.55, 0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
-    #forget_array=[0.6, 0.65, 0.7, 0.75, 0.8, 0.85, 0.9, 0.95, 1.0]
-    #forget_array=[0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     EnsSize_array = list(2**np.arange(4,7)-1)
     
     delta_obs_array=list(arrays['delta_obs_array'])
@@ -91,7 +82,6 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
             
             print(f'computing for delta_obs, EnsSize = {(delta_obs, EnsSize)}')
             
-            #if not all(truth_t==)
             if all([delta_obs in saved['delta_obs_array'], EnsSize in saved['EnsSize_array']]):
                 Z.extend(list(saved['Z'][np.nonzero(saved['delta_obs_array']==delta_obs)[0][0],
                                             np.nonzero(saved['EnsSize_array']==EnsSize)[0][0]].flatten()))
@@ -179,81 +169,10 @@ def plot_results_long(arrays='Z_long.npz', delta_obs_array=None, EnsSize_array=N
     xticks=[str(x) for x in arrays['EnsSize_array'][EnsSize_index]]
     yticks=['Assimilated', 'Non-assimilated']#, 'Likelihood']
     
-    if False:
-        for nfilter, filtername in enumerate(['SEIK','GHOSH','ratio',]):
-            for metric, title0 in enumerate(titles):
-                title=title0+' '+filtername
-                Z=arrays['Z'][delta_obs_index[:,None], EnsSize_index,:, metric]
-                
-                if nfilter>1:
-                    Z=Z[...,1]/Z[...,0]
-                    cmap=cmaps[0]
-                    vmax=np.exp(np.abs(np.log(Z)).max())
-                    vmin=1/vmax
-                    norm=colors.LogNorm(vmin=vmin, vmax=vmax)
-                else:
-                    vmax=min([Z.max(), max_metric])
-                    vmin=Z.min()
-                    Z=Z[...,nfilter]
-                    cmap=cmaps[1]
-                    #norm=colors.Normalize(vmin=vmin, vmax=vmax)
-                    norm=colors.LogNorm(vmin=vmin, vmax=vmax)
-                    
-                #Z=np.log(Z[...,1]/Z[...,0])
-                #vmax=Z.max()
-                #vmin=Z.min()
-                #vmax=np.exp(np.abs(np.log(Z)).max())
-                #vmin=1/vmax
-                #vmax=np.abs(Z).max()
-                #vmin=-vmax
-                #vmax=np.abs(np.log(Z)).max()
-                #vmin=-vmax
-                
-                #norm=colors.FuncNorm((lambda x: np.log(x), lambda x: np.exp(x)),vmin=0.25, vmax=4)
-                #norm=colors.LogNorm(vmin=vmin, vmax=vmax)
-                fig, axs = plt.subplots(Z.shape[0], Z.shape[1], sharex=True, sharey=True, squeeze=False, figsize=(12.8,19.4))
-                #im=[[axs[i,j].imshow(Z[i,j], cmap=cmap, vmin=vmin, vmax=vmax, origin='lower') for j in range(Z.shape[1])] for i in range(Z.shape[0])]
-                im=[[axs[i,j].imshow(Z[i,j], cmap=cmap, norm=norm, origin='lower') for j in range(Z.shape[1])] for i in range(Z.shape[0])]
-                
-                for j, xtitle in enumerate(arrays['delta_obs_array'][delta_obs_index]):
-                    axs[0,j].set_title(f'{xtitle}')
-                    axs[-1,j].set_xlabel('EnsSize')
-                    axs[-1,j].set_xticks([float(x) for x in range(len(xticks))])
-                    axs[-1,j].set_xticklabels(xticks, rotation=45)
-                for ax in axs[:, 0]:
-                    ax.set_ylabel('Forget')
-                    ax.set_yticks([float(x) for x in range(len(yticks))])
-                    ax.set_yticklabels(yticks)
-                for ax in axs.flatten():
-                    ax.tick_params(length=0.0)
-                    
-                #fig.set_tight_layout(True)
-                
-                axs[0, len(delta_obs_index)//2].annotate('Obs Frequency', (0.5, 1), xytext=(0, 20),
-                                    textcoords='offset points', xycoords='axes fraction',
-                                    ha='center', va='bottom', size=14)
-                axs[len(truth_t_index)//2, 0].annotate('Different random truths', (0, 0.5), xytext=(-40, 0),
-                                    textcoords='offset points', xycoords='axes fraction',
-                                    ha='right', va='center', size=14, rotation=90) 
-                #fig.subplots_adjust(bottom=0.05, right=0.95)
-                
-                cbar=fig.colorbar(im[0][0], ax=axs)
-                if nfilter==2:
-                    ticks=list(range(1,int(np.ceil(vmax))))
-                    ticks_list=[1/tick for tick in ticks[:0:-1]]+ticks
-                    ticks_labels=[f'1/{tick}' for tick in ticks[:0:-1]]+[str(tick) for tick in ticks]
-                    cbar.ax.set_yticks(ticks_list)
-                    cbar.ax.set_yticklabels(ticks_labels)
-                
-                fig.suptitle(title,fontsize=22)
-                if save:
-                    fig.savefig(os.path.join(folder,title.replace(' ','_')))
-    
     ######## overview #####################
     
     Z=arrays['Z'][delta_obs_index[:,None], EnsSize_index,:, 1:3]
     Z=np.concatenate((Z, Z[...,1:2,:]/Z[...,0:1,:]), axis=-2)
-    #Z[...,-1,:]=
     
     lab=['SEIK RMSE','GHOSH RMSE','RMSE ratio']
     
@@ -336,18 +255,6 @@ def plot_results_long(arrays='Z_long.npz', delta_obs_array=None, EnsSize_array=N
             axs[i,j].set_xticks([float(x) for x in range(len(xticks))])
             axs[i,j].set_xticklabels(xticks, rotation=45)
         
-        #for i in range(len(cbars)):
-            #axs[i*2+1,j].set_xlabel('EnsSize', size=14)
-            #axs[i*2+1,j].set_xticks([float(x) for x in range(len(xticks))])
-            #axs[i*2+1,j].set_xticklabels(xticks, rotation=45)
-    
-    #for ax, lab in zip(axs[:, 0],['Assimilated', "Non-assimilated"]*(Z.shape[0]//2)):
-        #ax.set_ylabel('Forget', size=14)
-        #ax.set_yticks([float(x) for x in range(len(yticks))])
-        #ax.set_yticklabels(yticks)
-        #ax.annotate(lab, (0, 0.5), xytext=(-50, 0),
-                    #textcoords='offset points', xycoords='axes fraction',
-                    #ha='right', va='center', size=16, rotation=90) 
     for ax in axs[:,0]:
         ax.set_yticks([float(x) for x in range(len(yticks))])
         ax.set_yticklabels(yticks)
@@ -361,6 +268,7 @@ def plot_results_long(arrays='Z_long.npz', delta_obs_array=None, EnsSize_array=N
         
     title=f'Overview'
     #fig.suptitle(title,fontsize=22)
+    #fig.set_tight_layout(True)
     if save:
         fig.savefig(os.path.join(folder,title.replace(' ','_')))
     
@@ -662,8 +570,6 @@ def main(model=Models.Lorenz96()):
     t_span=[0.0,20.0]
     obs_std=1.0
     n_experiments=100
-    #model=Models.Lorenz05(two_scale=True)
-    #model=Models.Lorenz96()
     clim_error=True
     
     if clim_error:
@@ -780,9 +686,13 @@ def main(model=Models.Lorenz96()):
     
 
 if __name__=='__main__':
-    #main_long()
-    #main_long(model=Models.Lorenz05(two_scale=True), append_str='_2005')
     main()
+    plot_results()
+    
+    main_long()
+    plot_results_long()
+    
+    #main_long(model=Models.Lorenz05(two_scale=True), append_str='_2005')
     
 
 

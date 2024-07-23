@@ -1,10 +1,10 @@
 import numpy as np
 from DA import Observation
 import utils
-from DA import EnsFilter
+from ._ensfilter import EnsFilter
 
 class Ghosh(EnsFilter):
-    def __init__(self, EnsSize, weights_omega=None, forget=1.0, order=5, symm=True):
+    def __init__(self, EnsSize, weights_omega=None, forget=1.0, with_autotuning=False, autotuning_bounds=None, order=5, symm=True):
         if weights_omega is None:
             if order<=1:
                 raise NotImplementedError
@@ -60,17 +60,21 @@ class Ghosh(EnsFilter):
         else:
             raise NotImplementedError
             
-        super().__init__(EnsSize, weights, forget)
-        self.TTW1T=np.diag(1.0/self.weights[1:])-np.ones([EnsSize-1]*2)
+        super().__init__(EnsSize, weights=weights, forget=forget, with_autotuning=with_autotuning, autotuning_bounds=autotuning_bounds)
         self.order=order
         
         
-    def forecast(self, state, Q_std=None):
-        if self.forget!=1.0:
-            mean=np.average(state,axis=-2,weights=self.weights)
-            mean=mean[..., None, :]
-            state=(state - mean)/np.sqrt(self.forget)+mean
+    def forecast(self, state, Q_std=None, forget=None):
+        forget=self._forget_check(forget)
+        mean=np.average(state,axis=-2,weights=self.weights)
+        mean=mean[..., None, :]
+        state_shape=state.shape
+        state=(state - mean)/np.sqrt(forget[...,None,None])+mean
+        if len(state_shape)==2:
+            state=state.reshape(state_shape)
         if Q_std is not None:
+            if np.ndim(Q_std)==0:
+                Q_std=np.reshape(Q_std, (1,))
             self._mean_and_base(state)
             sqrtQL=state[...,1:,:] / Q_std[...,None,:]
             
@@ -186,5 +190,7 @@ class Ghosh(EnsFilter):
         if self.forget!=1.0:
             string+=f', forget={self.forget}'
         string+=f', order={self.order}'
+        if self.with_autotuning:
+            string+=', with autotuning'
         string+=')'
         return string 

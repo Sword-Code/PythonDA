@@ -13,11 +13,21 @@ import Metrics
 import utils
 
 class Observation:
-    def __init__(self, obs, std):
+    def __init__(self, obs, std, true_std=None):
         self.obs=np.array(obs)
+        if np.ndim(self.obs)==0:
+            self.obs=np.reshape(self.obs, (1,))
         self.std=np.array(std)
+        if np.ndim(self.std)==0:
+            self.std=np.reshape(self.std, (1,))
         self.std1=1.0/self.std
-        
+        self.true_std=true_std
+        if true_std is None:
+            self.true_std=self.std
+        else:
+            if np.ndim(true_std)==0:
+                self.true_std=np.reshape(true_std, (1,))
+            
     def H(self, state):
         return state
     
@@ -28,8 +38,8 @@ class Observation:
         return Hbase*self.std1[...,None,:]
     
 class ObsByIndex(Observation):
-    def __init__(self, obs, std, indices=None):
-        super().__init__(obs, std)
+    def __init__(self, obs, std, true_std=None, indices=None):
+        super().__init__(obs, std, true_std=true_std)
         if indices is None:
             self.indices=np.arange(obs.shape[-1])
         else:
@@ -44,6 +54,7 @@ class Multiobs(Observation):
         self.obs=np.concatenate([observation.obs for observation in self.observations], axis=-1)
         self.std=np.concatenate([observation.std for observation in self.observations], axis=-1)
         self.std1=np.concatenate([observation.std1 for observation in self.observations], axis=-1)
+        self.true_std=np.concatenate([observation.true_std for observation in self.observations], axis=-1)
         
     def H(self, state):
         return np.concatenate([observation.H(state) for observation in self.observations], axis=-1)
@@ -51,51 +62,51 @@ class Multiobs(Observation):
     def sqrtR1(self, Hbase):
         return np.concatenate([observation.sqrtR1(Hbase) for observation in self.observations], axis=-1)
 
-class EnsFilter:
-    def __init__(self, EnsSize, weights=None, forget=1.0):
-        self.EnsSize=EnsSize
-        if weights is None:
-            weights=np.ones(EnsSize)/EnsSize
-        self.weights=weights
-        self.sqrt_weights=np.sqrt(weights)
-        self.forget=forget
+#class EnsFilter:
+    #def __init__(self, EnsSize, weights=None, forget=1.0):
+        #self.EnsSize=EnsSize
+        #if weights is None:
+            #weights=np.ones(EnsSize)/EnsSize
+        #self.weights=weights
+        #self.sqrt_weights=np.sqrt(weights)
+        #self.forget=forget
     
-    def forecast(self, state, Q_std=None):
-        return state, self._mean_std(state)
+    #def forecast(self, state, Q_std=None):
+        #return state, self._mean_std(state)
     
-    def analysis(self, state, obs):
-        return state, self._mean_std(state)
+    #def analysis(self, state, obs):
+        #return state, self._mean_std(state)
     
-    def sampling(self, mean_and_base):
-        raise NotImplementedError
+    #def sampling(self, mean_and_base):
+        #raise NotImplementedError
         
-    def _mean_and_base(self, ensemble):        
-        ensemble[...,0,:]=np.average(ensemble,axis=-2,weights=self.weights)
-        ensemble[...,1:,:]-=ensemble[...,0:1,:]        
-        return ensemble 
+    #def _mean_and_base(self, ensemble):        
+        #ensemble[...,0,:]=np.average(ensemble,axis=-2,weights=self.weights)
+        #ensemble[...,1:,:]-=ensemble[...,0:1,:]        
+        #return ensemble 
     
-    def _mean_std(self, ensemble, mean=None):
-        if mean is None:
+    #def _mean_std(self, ensemble, mean=None):
+        #if mean is None:
             
-            #print(self.weights)
-            #print(ensemble)
+            ##print(self.weights)
+            ##print(ensemble)
             
-            mean=np.average(ensemble,axis=-2,weights=self.weights)
-        else:
-            mean=mean.copy()    
-        mean=mean[...,None,:]
-        anomalies=ensemble-mean
-        std=np.sqrt(np.average(anomalies**2,axis=-2,weights=self.weights))
-        mean=mean[...,0,:]  
-        #print(std[0,:2])
-        return mean, std
+            #mean=np.average(ensemble,axis=-2,weights=self.weights)
+        #else:
+            #mean=mean.copy()    
+        #mean=mean[...,None,:]
+        #anomalies=ensemble-mean
+        #std=np.sqrt(np.average(anomalies**2,axis=-2,weights=self.weights))
+        #mean=mean[...,0,:]  
+        ##print(std[0,:2])
+        #return mean, std
     
-    def __repr__(self):
-        string=f'EnsFilter({self.EnsSize}'
-        if self.forget!=1.0:
-            string+=f', forget={self.forget}'
-        string+=')'
-        return string
+    #def __repr__(self):
+        #string=f'EnsFilter({self.EnsSize}'
+        #if self.forget!=1.0:
+            #string+=f', forget={self.forget}'
+        #string+=')'
+        #return string
     
 class MyOdeSolution(OdeSolution):
     def __init__(self,ts, interpolants, shape):
@@ -294,6 +305,7 @@ class Test:
             #print('Q_std_t(t[-1]):')
             #print(Q_std_t(t[-1]))
             
+            preforecast=state
             timer=time()
             state, (mean,std) = ens_filter.forecast(state, Q_std_t(t[-1]))
             timer=time()-timer
@@ -305,7 +317,12 @@ class Test:
             
             if obs_now:
                 all_obs=Multiobs(obs_now)
-                obs_now=all_obs
+                obs_now=deepcopy(all_obs)
+                if ens_filter.with_autotuning:
+                    timer=time()
+                    state, _ = ens_filter.autotuning(preforecast, all_obs, Q_std=Q_std_t(t[-1]))
+                    timer=time()-timer
+                    self.counter.add(autotuning=timer)
                 timer=time()
                 state, (mean,std) = ens_filter.analysis(state,all_obs)
                 timer=time()-timer
@@ -503,7 +520,7 @@ class TwinExperiment:
             self.reference=OdeResult(t=t, y=y, sol=sol)
         return self.reference
     
-    def build_obs(self, times, template, reference=None):
+    def build_obs(self, times, template, reference=None, true_std_sigma=0):
         if reference is None:
             reference=self.reference
         observations=[]
@@ -511,7 +528,9 @@ class TwinExperiment:
             if t<reference.t[0] or t>reference.t[-1]:
                 continue
             obs=deepcopy(template)
-            obs.obs=obs.H(reference.sol(t))+np.random.normal(size=obs.std.shape)*obs.std
+            obs.true_std=template.std*np.exp(np.random.normal(size=template.true_std.shape)*np.abs(true_std_sigma))
+            error=np.random.normal(size=obs.std.shape)*obs.true_std
+            obs.obs=obs.H(reference.sol(t))+error
             observations.append((t, obs))
         self.observations=observations
         
