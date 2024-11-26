@@ -4,8 +4,13 @@ from scipy.integrate._ivp.ivp import OdeResult
 from scipy.integrate import solve_ivp
 from scipy.signal import fftconvolve
 from DA import MyOdeSolution
-import matplotlib.pyplot as plt
+from warnings import warn
 
+NO_PLT=False
+try:
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError as err:
+    NO_PLT=True
 
 class Model:
     def __init__(self):
@@ -85,6 +90,9 @@ class Lorenz96(Model):
         return IC_truth
         
     def plot(self, x, indices=(0,1,2)):
+        if NO_PLT:
+            warn("Missing matplotlib module: the plot method cannot be used.")
+            return
         fig = plt.figure()
         ax = fig.add_subplot(projection="3d")
         ax.plot(x[indices[0]], x[indices[1]], x[indices[2]])

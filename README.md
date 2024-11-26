@@ -9,8 +9,11 @@ Prepare a list of ensemble filters for a twin experiment:
 from Filters import Seik, Ghosh
 
 EnsSize=31
-ens_filters=[Seik(EnsSize), Ghosh(EnsSize)]
+forgettin_factor=0.7
+ens_filters=[Seik(EnsSize, forget=forgettin_factor), 
+             Ghosh(EnsSize, forget=forgettin_factor))]
 ```
+Each filter needs to know the ensemble size. Other customizations are possible by specifying other arguments (e.g., the chosen forgetting factor, which is 1.0 by default).
 
 Choose a model:
 ```

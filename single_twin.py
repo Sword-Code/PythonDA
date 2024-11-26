@@ -25,8 +25,8 @@ def main(N=62, EnsSize=31, delta_obs=0.15, forget=0.75, n_experiments=100, model
     
     IC_truth,_ =model([0.0,20],IC_0)
 
-    #obs=DA.ObsByIndex(np.zeros(N//obs_each),np.ones(N//obs_each)*obs_std, indices=indices)
-    obs=DA.ObsByIndex(np.zeros([n_experiments, len(indices)]),np.ones([n_experiments, len(indices)])*obs_std, true_std=np.ones([n_experiments, 1])*obs_std, indices=indices)
+    #obs=DA.Observation(np.zeros(N//obs_each),np.ones(N//obs_each)*obs_std, indices=indices)
+    obs=DA.Observation(np.zeros([n_experiments, len(indices)]),np.ones([n_experiments, len(indices)])*obs_std, true_std=np.ones([n_experiments, 1])*obs_std, indices=indices)
 
     ens_filters=[
                 #Seik(EnsSize, forget=1.0),

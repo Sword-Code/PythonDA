@@ -12,6 +12,7 @@ import numpy as np
 import gc
 import os
 import shutil
+from warnings import warn
 
 def main_long(model=Models.Lorenz96(), append_str='_96'):
     print('start')
@@ -41,8 +42,8 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
 
     obs_each=2
     indices=range(0,N,obs_each)
-    obs=DA.ObsByIndex(np.zeros(N//obs_each),np.ones(N//obs_each)*obs_std, indices=indices)
-    #obs=DA.ObsByIndex(np.zeros([n_experiments,N//obs_each]),np.ones([n_experiments,N//obs_each])*obs_std, indices=indices)
+    obs=DA.Observation(np.zeros(N//obs_each),np.ones(N//obs_each)*obs_std, indices=indices)
+    #obs=DA.Observation(np.zeros([n_experiments,N//obs_each]),np.ones([n_experiments,N//obs_each])*obs_std, indices=indices)
     
     metrics=[
             DA.TimeMean(DA.RmpeByTime(index= None), name='RmseTot'),
@@ -52,12 +53,13 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
             ]
 
     try:
-        with np.load('Z_long'+append_str+'.npz') as f:
+        filename='Z_long'+append_str+'.npz'
+        with np.load(filename) as f:
             saved={}
             for key in f.files:
                 saved[key]=f[key]
-    except Exception as err:
-        print(f'impossible to load (error: {err}). Starting from scratch.')
+    except FileNotFoundError as err:
+        warn(f"There is no save file: {filename}. I will start computation from scratch.")
         saved={'Z':np.array([]), 
                 'delta_obs_array':np.array([]),
                 'EnsSize_array':np.array([], dtype=np.int64),
@@ -75,12 +77,19 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
     #Z=list(np.load('Z'+append_str+'.bkp.npy'))
     #timing=list(np.load('timing'+append_str+'.bkp.npy'))
     
+    print("Explored configurations:")
+    print(f"delta_obs_array = {delta_obs_array}")
+    print(f"EnsSize_array = {EnsSize_array}")
+    i_conf=0
+    n_conf=len(truth_t_array)*len(delta_obs_array)*len(forget_array)*len(EnsSize_array)
     for delta_obs in delta_obs_array:
         for EnsSize in EnsSize_array:
+            i_conf+=1
+            print(f"cofiguration {i_conf} of {n_conf}:")
+            print(f'computing for delta_obs, EnsSize = {(delta_obs, EnsSize)}')
+                    
             forget= best[np.nonzero(arrays['delta_obs_array']==delta_obs)[0][0],
                             np.nonzero(arrays['EnsSize_array']==EnsSize)[0][0]]
-            
-            print(f'computing for delta_obs, EnsSize = {(delta_obs, EnsSize)}')
             
             if all([delta_obs in saved['delta_obs_array'], EnsSize in saved['EnsSize_array']]):
                 Z.extend(list(saved['Z'][np.nonzero(saved['delta_obs_array']==delta_obs)[0][0],
@@ -580,8 +589,8 @@ def main(model=Models.Lorenz96()):
 
     obs_each=2
     indices=range(0,N,obs_each)
-    obs=DA.ObsByIndex(np.zeros(N//obs_each),np.ones(N//obs_each)*obs_std, indices=indices)
-    #obs=DA.ObsByIndex(np.zeros([n_experiments,N//obs_each]),np.ones([n_experiments,N//obs_each])*obs_std, indices=indices)
+    obs=DA.Observation(np.zeros(N//obs_each),np.ones(N//obs_each)*obs_std, indices=indices)
+    #obs=DA.Observation(np.zeros([n_experiments,N//obs_each]),np.ones([n_experiments,N//obs_each])*obs_std, indices=indices)
     
     metrics=[
             DA.HalfTimeMean(DA.RmpeByTime(index= None), name='RmseTot'),
@@ -594,12 +603,13 @@ def main(model=Models.Lorenz96()):
     #for truth_t, delta_obs, forget, EnsSize in zip(truth_t_array.flatten(), delta_obs_array.flatten(), forget_array.flatten(), EnsSize_array.flatten()):
     
     try:
-        with np.load('Z.npz') as f:
+        filename='Z.npz'
+        with np.load(filename) as f:
             saved={}
             for key in f.files:
                 saved[key]=f[key]
-    except Exception as err:
-        print(f'impossible to load (error: {err}). Starting from scratch.')
+    except FileNotFoundError as err:
+        warn(f"There is no save file: {filename}. I will start computation from scratch.")
         saved={'Z':np.array([]), 
                 'truth_t_array':np.array([]),
                 'delta_obs_array':np.array([]),
@@ -620,6 +630,13 @@ def main(model=Models.Lorenz96()):
     #Z=list(np.load('Z.bkp.npy'))
     #timing=list(np.load('timing.bkp.npy'))
     
+    print("Explored configurations:")
+    print(f"truth_t_array = {truth_t_array}")
+    print(f"delta_obs_array = {delta_obs_array}")
+    print(f"forget_array = {forget_array}")
+    print(f"EnsSize_array = {EnsSize_array}")
+    i_conf=0
+    n_conf=len(truth_t_array)*len(delta_obs_array)*len(forget_array)*len(EnsSize_array)
     for truth_t in truth_t_array:
         IC_truth,_ =model([0.0,truth_t],IC_0)
         del _
@@ -627,9 +644,10 @@ def main(model=Models.Lorenz96()):
         for delta_obs in delta_obs_array:
             for forget in forget_array:
                 for EnsSize in EnsSize_array:
+                    i_conf+=1
+                    print(f"cofiguration {i_conf} of {n_conf}:")
                     print(f'computing for truth_t, delta_obs, forget, EnsSize = {(truth_t, delta_obs, forget, EnsSize)}')
                     
-                    #if not all(truth_t==)
                     if all([truth_t in saved['truth_t_array'], delta_obs in saved['delta_obs_array'], forget in saved['forget_array'], EnsSize in saved['EnsSize_array']]):
                         Z.extend(list(saved['Z'][np.nonzero(saved['truth_t_array']==truth_t)[0][0],
                                                  np.nonzero(saved['delta_obs_array']==delta_obs)[0][0],

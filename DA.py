@@ -4,15 +4,32 @@ from scipy.integrate._ivp.ivp import OdeResult
 from scipy.integrate import OdeSolution, solve_ivp
 import itertools
 from copy import deepcopy
-import matplotlib.pyplot as plt
-from tabulate import tabulate
 from time import time
 
 from Metrics import DistanceByTime, RmpeByTime, LastTime, HalfTimeMean, TimeMean, LastTime, HalfTimeMean, TimeMean
 import Metrics
 import utils
 
-class Observation:
+from warnings import warn
+
+# import matplotlib.pyplot as plt
+# from tabulate import tabulate
+
+NO_TABULATE=False
+try:
+    from tabulate import tabulate
+except ModuleNotFoundError as err:
+    NO_TABULATE=True
+    warn(f"{err}. The TwinExperiment.table method will not be available.")
+    
+NO_PLT=False
+try:
+    import matplotlib.pyplot as plt
+except ModuleNotFoundError as err:
+    NO_PLT=True
+    warn(f"{err}. The TwinExperiment.plot method will not be available.")
+
+class BaseObservation:
     def __init__(self, obs, std, true_std=None):
         self.obs=np.array(obs)
         if np.ndim(self.obs)==0:
@@ -27,17 +44,17 @@ class Observation:
         else:
             if np.ndim(true_std)==0:
                 self.true_std=np.reshape(true_std, (1,))
-            
-    def H(self, state):
-        return state
     
     def misfit(self, Hstate):
         return self.obs-Hstate
     
     def sqrtR1(self, Hbase):
         return Hbase*self.std1[...,None,:]
+            
+    def H(self, state):
+        raise NotImplementedError
     
-class ObsByIndex(Observation):
+class Observation(BaseObservation):
     def __init__(self, obs, std, true_std=None, indices=None):
         super().__init__(obs, std, true_std=true_std)
         if indices is None:
@@ -48,7 +65,7 @@ class ObsByIndex(Observation):
     def H(self, state):
         return state[...,self.indices]
     
-class Multiobs(Observation):
+class Multiobs(BaseObservation):
     def __init__(self, observations):
         self.observations=observations
         self.obs=np.concatenate([observation.obs for observation in self.observations], axis=-1)
@@ -61,52 +78,6 @@ class Multiobs(Observation):
     
     def sqrtR1(self, Hbase):
         return np.concatenate([observation.sqrtR1(Hbase) for observation in self.observations], axis=-1)
-
-#class EnsFilter:
-    #def __init__(self, EnsSize, weights=None, forget=1.0):
-        #self.EnsSize=EnsSize
-        #if weights is None:
-            #weights=np.ones(EnsSize)/EnsSize
-        #self.weights=weights
-        #self.sqrt_weights=np.sqrt(weights)
-        #self.forget=forget
-    
-    #def forecast(self, state, Q_std=None):
-        #return state, self._mean_std(state)
-    
-    #def analysis(self, state, obs):
-        #return state, self._mean_std(state)
-    
-    #def sampling(self, mean_and_base):
-        #raise NotImplementedError
-        
-    #def _mean_and_base(self, ensemble):        
-        #ensemble[...,0,:]=np.average(ensemble,axis=-2,weights=self.weights)
-        #ensemble[...,1:,:]-=ensemble[...,0:1,:]        
-        #return ensemble 
-    
-    #def _mean_std(self, ensemble, mean=None):
-        #if mean is None:
-            
-            ##print(self.weights)
-            ##print(ensemble)
-            
-            #mean=np.average(ensemble,axis=-2,weights=self.weights)
-        #else:
-            #mean=mean.copy()    
-        #mean=mean[...,None,:]
-        #anomalies=ensemble-mean
-        #std=np.sqrt(np.average(anomalies**2,axis=-2,weights=self.weights))
-        #mean=mean[...,0,:]  
-        ##print(std[0,:2])
-        #return mean, std
-    
-    #def __repr__(self):
-        #string=f'EnsFilter({self.EnsSize}'
-        #if self.forget!=1.0:
-            #string+=f', forget={self.forget}'
-        #string+=')'
-        #return string
     
 class MyOdeSolution(OdeSolution):
     def __init__(self,ts, interpolants, shape):
@@ -568,6 +539,9 @@ class TwinExperiment:
         return mean
             
     def table(self, ivar=None):
+        if NO_TABULATE:
+            warn("The 'table' method needs the tabulate module.")
+            return
         array=[[ variable,  "\n".join([str(metric) for metric in self.tests[0].metrics_result])] + 
                ["\n".join([str(metric.result[variable].item()) for metric in test.metrics_result]) for test in self.tests] for variable in range(len(self.tests[0].metrics_result[0].result))]
         headers=['Variable', 'Metric']+[str(test.ens_filter) for test in self.tests]
@@ -575,14 +549,20 @@ class TwinExperiment:
         
     
     def plot(self, ivar=0, iexp=np.s_[:], draw_var=True, draw_std=True, draw_metrics=True, draw_ens=False, show=True, save=None, title=None):
+        if NO_PLT:
+            warn("The 'plot' method needs the matplotlib module.")
+            return
         fig, ax_list = plt.subplots(int(draw_var)+int(draw_std)+int(draw_metrics)*len(self.tests[0].draw_metrics), sharex=True, squeeze=False, figsize=[12.8,4.8+4.8*int(draw_metrics)])
         ax_list=ax_list.flatten()
         
         if draw_var:
             ax=ax_list[0]
             ax.plot(self.reference.t, self.reference.y[ivar], 'k', label='Truth')
+            not_drawable_obs=False
             for iobs, (t, obs) in enumerate(self.observations):
-                #if obs.obs.shape[-1]>ivar:
+                if 'indices' not in obs.__dict__:
+                    all_obs_drawable=True
+                    continue
                 if ivar in obs.indices:
                     i=tuple(obs.indices).index(ivar)
                     obs_value=obs.obs[...,i]
@@ -593,7 +573,8 @@ class TwinExperiment:
                     obs_line,=ax.plot([t],obs_value, 'go')
                     if iobs==0:
                         obs_line.set_label('Observations')
-                        
+            if not_drawable_obs:
+                warn("Some observations are not drawable: missing 'indices' attribute. Probably you are not using the Observation class. ")
         for itest, test in enumerate(self.tests):
             color=f'C{itest % 10}'
             ax_number=-1
