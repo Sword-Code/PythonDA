@@ -84,7 +84,7 @@ def main_long(model=Models.Lorenz96(), load_file='Z.npz', save_file='Z_long.npz'
     for delta_obs in delta_obs_array:
         for EnsSize in EnsSize_array:
             i_conf+=1
-            print(f"cofiguration {i_conf} of {n_conf}:")
+            print(f"Configuration {i_conf} of {n_conf}:")
             print(f'computing for delta_obs, EnsSize = {(delta_obs, EnsSize)}')
                     
             forget= best[np.nonzero(arrays['delta_obs_array']==delta_obs)[0][0],
@@ -644,7 +644,7 @@ def main(model=Models.Lorenz96(), save_file='Z.npz'):
             for forget in forget_array:
                 for EnsSize in EnsSize_array:
                     i_conf+=1
-                    print(f"cofiguration {i_conf} of {n_conf}:")
+                    print(f"Configuration {i_conf} of {n_conf}:")
                     print(f'computing for truth_t, delta_obs, forget, EnsSize = {(truth_t, delta_obs, forget, EnsSize)}')
                     
                     if all([truth_t in saved['truth_t_array'], delta_obs in saved['delta_obs_array'], forget in saved['forget_array'], EnsSize in saved['EnsSize_array']]):

@@ -21,7 +21,7 @@ from Filters import Seik, Ghosh
 EnsSize=31
 forgettin_factor=0.7
 ens_filters=[Seik(EnsSize, forget=forgettin_factor), 
-             Ghosh(EnsSize, forget=forgettin_factor))]
+             Ghosh(EnsSize, forget=forgettin_factor)]
 ```
 Each filter needs to know the ensemble size. Other customizations are possible by specifying other arguments (e.g., the chosen forgetting factor, which is 1.0 by default).
 
@@ -72,7 +72,7 @@ test.build_obs(times=obs_times, template=obs_template)
 ```
 The observations in the twin experiment are built given an observation template and observation times.
 
-Initialize experiments, build error affected initial conditions and launch the twin experiments:
+Initialize 100 experiments at once, build error affected initial conditions and launch the twin experiments:
 ```
 test.build_tests()
 n_experiments=100
