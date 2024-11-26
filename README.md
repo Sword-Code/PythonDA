@@ -8,7 +8,7 @@ PythonDA requires the following Python modules:
 - `numpy`
 - `scipy`
 
-The following modules are highly reccommended but not mandatory (they are used by `table()` and `plot()` methods to present results):
+The following modules are highly recommended but not mandatory (they are used by `table()` and `plot()` methods to present results):
 - `tabulate`
 - `matplotlib`
 
