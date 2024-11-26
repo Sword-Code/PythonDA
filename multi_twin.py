@@ -12,15 +12,15 @@ import numpy as np
 import gc
 import os
 import shutil
-from warnings import warn
+from pathlib import Path
 
-def main_long(model=Models.Lorenz96(), append_str='_96'):
+def main_long(model=Models.Lorenz96(), load_file='Z.npz', save_file='Z_long.npz'):
     print('start')
-    with np.load('Z'+append_str+'.npz') as f:
+    with np.load(load_file) as f:
         arrays={}
         for key in f.files:
             arrays[key]=f[key]
-    print('Z'+append_str+'.npz loaded')
+    print(f'{load_file} loaded')
             
     best=np.linalg.norm(arrays['Z'][...,0], axis=0, keepdims=False).argmin(axis=1, keepdims=False)
     best=arrays['forget_array'][best]
@@ -52,14 +52,14 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
             DA.TimeMean(Metrics.LikelihoodByTime(), name='Likelihood'),
             ]
 
-    try:
-        filename='Z_long'+append_str+'.npz'
-        with np.load(filename) as f:
+    path=Path(save_file)
+    if path.exists():
+        with np.load(path) as f:
             saved={}
             for key in f.files:
                 saved[key]=f[key]
-    except FileNotFoundError as err:
-        warn(f"There is no save file: {filename}. I will start computation from scratch.")
+    else:
+        print(f"There is no save file: {save_file}. I will start computation from scratch.")
         saved={'Z':np.array([]), 
                 'delta_obs_array':np.array([]),
                 'EnsSize_array':np.array([], dtype=np.int64),
@@ -68,14 +68,13 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
     
     Z=[]
     timing=[]
-    delta_obs_array=[0.1, 0.15, 0.2, 0.25, 0.3]
-    EnsSize_array = list(2**np.arange(4,7)-1)
-    
+    # delta_obs_array=[0.1, 0.15, 0.2, 0.25, 0.3]
+    # EnsSize_array = list(2**np.arange(4,7)-1)
     delta_obs_array=list(arrays['delta_obs_array'])
     EnsSize_array = list(arrays['EnsSize_array'])
     
-    #Z=list(np.load('Z'+append_str+'.bkp.npy'))
-    #timing=list(np.load('timing'+append_str+'.bkp.npy'))
+    #Z=list(np.load(f'{save_file}.bkp.npy'))
+    #timing=list(np.load(f'{save_file}_timing.bkp.npy'))
     
     print("Explored configurations:")
     print(f"delta_obs_array = {delta_obs_array}")
@@ -128,14 +127,14 @@ def main_long(model=Models.Lorenz96(), append_str='_96'):
             del metric_array
             del timing_array
             gc.collect()
-        np.save('Z'+append_str+'.bkp', Z)
-        np.save('timing'+append_str+'.bkp', timing)
+        np.save(f'{save_file}.bkp', Z)
+        np.save(f'{save_file}_timing.bkp', timing)
         
     Z=np.reshape(Z, [len(delta_obs_array), len(EnsSize_array), 2, len(metrics)])
     timing=np.reshape(timing, [len(delta_obs_array), len(EnsSize_array), 2, 5])
-    print('saving Z_long'+append_str)
-    np.savez('Z_long'+append_str+'.npz', Z=Z, delta_obs_array=delta_obs_array, EnsSize_array=EnsSize_array, timing=timing, best=best)
-    print('Z_long'+append_str+'.npz saved')
+    print(f'saving {save_file}')
+    np.savez(save_file, Z=Z, delta_obs_array=delta_obs_array, EnsSize_array=EnsSize_array, timing=timing, best=best)
+    print(f'{save_file} saved')
                 
 def plot_results_long(arrays='Z_long.npz', delta_obs_array=None, EnsSize_array=None, titles=['Total RMSE','Assimilated RMSE','Non-assimilated RMSE'], cmaps=['seismic_r','viridis'], max_metric=4.0, save=False, folder='SAVED'):
     
@@ -156,10 +155,10 @@ def plot_results_long(arrays='Z_long.npz', delta_obs_array=None, EnsSize_array=N
                 return
         else:
             os.makedirs(folder)
-            if type(arrays)==type('hello'):
+            if type(arrays) is type('hello'):
                 shutil.copy2(arrays,folder)
     
-    if type(arrays)==type('hello'):
+    if type(arrays) is type('hello'):
         with np.load(arrays) as f:
             arrays={}
             for key in f.files:
@@ -283,7 +282,7 @@ def plot_results_long(arrays='Z_long.npz', delta_obs_array=None, EnsSize_array=N
     
     plt.show()
 
-def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_array=None, EnsSize_array=None, titles=['Total RMSE','Assimilated RMSE','Non-assimilated RMSE'], cmaps=['seismic_r','viridis'], max_metric=4.0, save=False, folder='SAVED'):
+def plot_results(arrays='Z.npz', truth_t_array=None, delta_obs_array=None, forget_array=None, EnsSize_array=None, titles=['Total RMSE','Assimilated RMSE','Non-assimilated RMSE'], cmaps=['seismic_r','viridis'], max_metric=4.0, save=False, folder='SAVED'):
     
     if save:
         if os.path.exists(folder):
@@ -302,11 +301,11 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
                 return
         else:
             os.makedirs(folder)
-            if arrays is None:
-                shutil.copy2('Z.npz',folder)
+            if type(arrays) is type("hello"):
+                shutil.copy2(arrays,folder)
     
-    if arrays is None:
-        with np.load('Z.npz') as f:
+    if type(arrays) is type("hello"):
+        with np.load(arrays) as f:
             arrays={}
             for key in f.files:
                 arrays[key]=f[key]
@@ -573,7 +572,7 @@ def plot_results(arrays=None, truth_t_array=None, delta_obs_array=None, forget_a
     
     plt.show()
     
-def main(model=Models.Lorenz96()):
+def main(model=Models.Lorenz96(), save_file='Z.npz'):
     print('start')
     N=2**6-2
     t_span=[0.0,20.0]
@@ -602,14 +601,14 @@ def main(model=Models.Lorenz96()):
     #truth_t_array, delta_obs_array, forget_array, EnsSize_array = np.meshgrid([20.0,40.0,60.0], np.linspace(0.1, 0.3, 3), np.linspace(0.7, 1.0, 4), 2**np.arange(3,7)-1, indexing='ij')
     #for truth_t, delta_obs, forget, EnsSize in zip(truth_t_array.flatten(), delta_obs_array.flatten(), forget_array.flatten(), EnsSize_array.flatten()):
     
-    try:
-        filename='Z.npz'
-        with np.load(filename) as f:
+    path=Path(save_file)
+    if path.exists():
+        with np.load(path) as f:
             saved={}
             for key in f.files:
                 saved[key]=f[key]
-    except FileNotFoundError as err:
-        warn(f"There is no save file: {filename}. I will start computation from scratch.")
+    else:
+        print(f"There is no save file: {save_file}. I will start computation from scratch.")
         saved={'Z':np.array([]), 
                 'truth_t_array':np.array([]),
                 'delta_obs_array':np.array([]),
@@ -627,8 +626,8 @@ def main(model=Models.Lorenz96()):
     #forget_array=[0.5, 0.6, 0.7, 0.8, 0.9, 1.0]
     EnsSize_array = list(2**np.arange(4,7)-1)
     
-    #Z=list(np.load('Z.bkp.npy'))
-    #timing=list(np.load('timing.bkp.npy'))
+    #Z=list(np.load(f'{save_file}.bkp.npy'))
+    #timing=list(np.load(f'{save_file}_timing.bkp.npy'))
     
     print("Explored configurations:")
     print(f"truth_t_array = {truth_t_array}")
@@ -691,14 +690,14 @@ def main(model=Models.Lorenz96()):
                     gc.collect()
         del IC_truth
         gc.collect()
-        np.save('Z.bkp', Z)
-        np.save('timing.bkp', timing)
+        np.save(save_file+'.bkp', Z)
+        np.save(save_file+'_timing.bkp', timing)
         
     Z=np.reshape(Z, [len(truth_t_array), len(delta_obs_array), len(forget_array), len(EnsSize_array), 2, len(metrics)])
     timing=np.reshape(timing, [len(truth_t_array), len(delta_obs_array), len(forget_array), len(EnsSize_array), 2, 5])
-    print('saving Z')
-    np.savez('Z.npz', Z=Z, truth_t_array=truth_t_array, delta_obs_array=delta_obs_array, forget_array=forget_array, EnsSize_array=EnsSize_array, timing=timing)
-    print('Z.npz saved')
+    print(f'saving {save_file}')
+    np.savez(save_file, Z=Z, truth_t_array=truth_t_array, delta_obs_array=delta_obs_array, forget_array=forget_array, EnsSize_array=EnsSize_array, timing=timing)
+    print(f'{save_file} saved')
             
     #plot_results(Z)
     
@@ -710,7 +709,6 @@ if __name__=='__main__':
     main_long()
     plot_results_long()
     
-    #main_long(model=Models.Lorenz05(two_scale=True), append_str='_2005')
     
 
 

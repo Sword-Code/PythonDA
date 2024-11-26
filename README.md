@@ -1,6 +1,16 @@
 # PythonDA
 
-This is a Python Data Assimilation tool. It contains classes for DA experiments, twin experiments, DA filters and metrics. 
+This is a Python Data Assimilation tool. It contains classes for DA experiments, twin experiments, DA filters and metrics.
+
+## Installation:
+
+PythonDA requires the following Python modules:
+- `numpy`
+- `scipy`
+
+The following modules are highly reccommended but not mandatory (they are used by `table()` and `plot()` methods to present results):
+- `tabulate`
+- `matplotlib`
 
 ## Usage:
 
@@ -69,7 +79,6 @@ n_experiments=100
 test.build_climatological_ICs(n_experiments=n_experiments)
 test.run()
 ```
-
 
 Present results by using a table and a plot:
 ```
