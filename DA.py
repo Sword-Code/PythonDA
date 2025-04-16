@@ -80,13 +80,21 @@ class Multiobs(BaseObservation):
         return np.concatenate([observation.sqrtR1(Hbase) for observation in self.observations], axis=-1)
     
 class MyOdeSolution(OdeSolution):
-    def __init__(self,ts, interpolants, shape):
+    def __init__(self,ts, interpolants, shape, after_transform=None):
         super().__init__(ts, interpolants)
         self.shape=shape
+        if after_transform is None:
+            self.after_transform=lambda x: x
+        else:
+            self.after_transform=after_transform
         
     def __call__(self, t):
-        result=super().__call__(t)            
-        return result.reshape(self.shape+(-1,)*(result.ndim-1))
+        result=super().__call__(t)
+        ndim=result.ndim
+        result=result.reshape(self.shape+(-1,))
+        result=self.after_transform(result)
+        result=result.reshape(self.shape+(-1,)*(ndim-1))
+        return result
     
 class Model:
     def __init__(self):
@@ -557,7 +565,8 @@ class TwinExperiment:
         
         if draw_var:
             ax=ax_list[0]
-            ax.plot(self.reference.t, self.reference.y[ivar], 'k', label='Truth')
+            t=np.linspace(self.reference.t[0], self.reference.t[-1], 1000)
+            ax.plot(t, self.reference.sol(t)[ivar], 'k', label='Truth')
             not_drawable_obs=False
             for iobs, (t, obs) in enumerate(self.observations):
                 if 'indices' not in obs.__dict__:
