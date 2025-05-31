@@ -1,11 +1,13 @@
+from warnings import warn
+
 import numpy as np
 from scipy.integrate._ivp.base import ConstantDenseOutput
 from scipy.integrate._ivp.ivp import OdeResult
 from scipy.integrate import solve_ivp
 from scipy.signal import fftconvolve
-from DA import MyOdeSolution
-from warnings import warn
-from Models import Model
+
+from .DA import MyOdeSolution
+from .Models import Model 
 
 NO_PLT=False
 try:

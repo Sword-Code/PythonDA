@@ -1,7 +1,10 @@
-import numpy as np
-import utils
-from scipy.optimize import minimize
+
 from copy import deepcopy
+
+import numpy as np
+from scipy.optimize import minimize
+
+from .. import utils
 
 class EnsFilter:
     def __init__(self, EnsSize, weights=None, forget=1.0, with_autotuning=False, autotuning_bounds=None):

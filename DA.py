@@ -6,9 +6,9 @@ import itertools
 from copy import deepcopy
 from time import time
 
-from Metrics import DistanceByTime, RmpeByTime, LastTime, HalfTimeMean, TimeMean, LastTime, HalfTimeMean, TimeMean
-import Metrics
-import utils
+from .Metrics import DistanceByTime, RmpeByTime, LastTime, HalfTimeMean, TimeMean, LastTime, HalfTimeMean, TimeMean
+from . import Metrics
+from . import utils
 
 from warnings import warn
 
@@ -150,8 +150,11 @@ class MyDenseOutput(DenseOutput):
         self.interpolant=interpolant
         
     def _call_impl(self, t):
-        delta=(t-self.t_min)/(self.t_max-self.t_min)*self.delta_max + (self.t_max-t)/(self.t_max-self.t_min)*self.delta_min
-        return self.interpolant(t)+delta        
+        # print(f't: {t}, t_min: {self.t_min}, t_max: {self.t_max}, delta_min: {self.delta_min}, delta_max: {self.delta_max}')
+        denominator=1/(self.t_max-self.t_min)
+        delta=((t-self.t_min)*self.delta_max[...,None] + (self.t_max-t)*self.delta_min[...,None])*denominator
+        result=self.interpolant(t)
+        return result+delta.reshape(result.shape)
 
 
     

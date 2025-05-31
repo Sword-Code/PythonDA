@@ -1,5 +1,6 @@
 import numpy as np
-import utils
+
+from . import utils
 
 class Metric:
     def __init__(self, p=2, delta=0, draw=False, name=None):
