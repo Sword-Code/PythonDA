@@ -19,8 +19,9 @@ class EnsFilter:
         self.with_autotuning=with_autotuning
         self.autotuned_forget=np.array([forget])
         if autotuning_bounds is None:
-            #self.autotuning_bounds=((0.5,1.0), (-np.log(1.5),np.log(1.5)))
-            self.autotuning_bounds=((0.5,1.0), (-0.001,0.001))
+            #autotuning_bounds=((0.5,1.0), (-np.log(1.5),np.log(1.5)))
+            autotuning_bounds=((0.5,1.0), (-0.001,0.001))
+        self.autotuning_bounds=autotuning_bounds
     
     def forecast(self, state, Q_std=None, forget=None):
         return state, self._mean_std(state)
@@ -60,7 +61,14 @@ class EnsFilter:
         new_forget=np.empty(forget_list.shape)
         std_correction=np.empty(forget_list.shape)
         for i, (state_i, obs_i, Q_std_i, forget_i) in enumerate(zip(state_list, observation_list, Q_std_list, forget_list)):
-            sol=minimize(fun=self._autotuning_loss, x0=np.array([forget_i, 0.0]), args=(state_i, obs_i, Q_std_i), bounds=self.autotuning_bounds)
+            sol=minimize(
+                fun=self._autotuning_loss, 
+                x0=np.array([forget_i, 0.0]), 
+                args=(state_i, obs_i, Q_std_i), 
+                bounds=self.autotuning_bounds,
+                jac='3-point',
+                options={'finite_diff_rel_step':0.001},
+                )
             if not sol.success:
                 print(f'Experiment {i}:')
                 print(sol)
