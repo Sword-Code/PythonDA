@@ -518,19 +518,18 @@ class TwinExperiment:
         
         return observations
     
-    def build_ICs(self, std=1.0, truth_0=None, n_experiments=1):
+    def build_ICs(self, std=1.0, truth_0=None, mean=None, n_experiments=1):
         if truth_0 is None:
             truth_0=self.reference.y[...,0]
         error_std=truth_0.copy()
         error_std[...]=std
         
-        mean=truth_0+np.random.normal(size=(n_experiments,)+truth_0.shape)*error_std
-        #print('truth_0:')
-        #print(truth_0)
-        #print('mean:')
-        #print(mean)
-        #mean=truth_0+np.random.normal(size=truth_0.shape)*error_std
-        #print(mean)
+        size=(n_experiments,)+truth_0.shape
+        if mean is None:
+            mean=truth_0+np.random.normal(size=size)*error_std
+        
+        assert mean.shape==size
+        
         for test in self.tests:
             test.build_IC(std=error_std, mean=mean)
             
