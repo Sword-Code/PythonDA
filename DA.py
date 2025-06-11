@@ -573,7 +573,7 @@ class TwinExperiment:
             not_drawable_obs=False
             for iobs, (t, obs) in enumerate(self.observations):
                 if 'indices' not in obs.__dict__:
-                    all_obs_drawable=True
+                    not_drawable_obs=True
                     continue
                 if ivar in obs.indices:
                     i=tuple(obs.indices).index(ivar)
