@@ -9,14 +9,19 @@ class Ghosh(EnsFilter):
             if order<=1:
                 raise NotImplementedError
             elif order==2:
+                #constant weights are chosen
                 weights=np.ones(EnsSize)/EnsSize
+                # any orthonormal matrix solves moment-matching equations up to order 2
                 omega=np.empty((EnsSize,)*2)
                 omega[0,:]=np.sqrt(weights)
                 self.omega=utils.ortmatrix(omega,1)[1:,:]
                 self.symm=False
             elif order==3:
-                self.omega=np.identity(EnsSize//2)
+                #constant weights are chosen
                 weights=np.ones(EnsSize)/EnsSize
+                # any properly scaled symmetric ensemble solves moment-matching equations up to order 3:
+                # the identity matrix is chosen. symm=True automatically generate the required symmetry. 
+                self.omega=np.identity(EnsSize//2)
                 self.symm=True
             elif order==4:
                 raise NotImplementedError
@@ -24,6 +29,7 @@ class Ghosh(EnsFilter):
                 hdim=int(np.log2(EnsSize+1))-1
                 omega=np.zeros([EnsSize, EnsSize])
                 
+                #implementation of order 5 analytical solution for moment-matching equations
                 omega2=np.zeros([hdim+1,hdim+1])
                 for k in range(hdim):
                     omega2[0,k]=2/((k+2)*(k+3))
