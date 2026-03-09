@@ -20,7 +20,9 @@ def transpose(matrices):
     return matrices.transpose(list(range(len(matrices.shape)-2))+[-1,-2])
 
 def ortmatrix(matrices,start):
-    shape=matrices.shape    
+    shape=matrices.shape
+    if start>=shape[-2]:
+        return matrices
     matrices[...,start:,:]=np.random.normal(size= shape[:-2]+(shape[-2]-start, shape[-1]))
     #print(matrices)
     matrices[...,start:,:] /= np.linalg.norm(matrices[...,start:,:], axis=-1, keepdims=True)
