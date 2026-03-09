@@ -15,7 +15,7 @@ class Ghosh(EnsFilter):
                 self.omega=utils.ortmatrix(omega,1)[1:,:]
                 self.symm=False
             elif order==3:
-                self.omega=np.identity(self.EnsSize//2)
+                self.omega=np.identity(EnsSize//2)
                 weights=np.ones(EnsSize)/EnsSize
                 self.symm=True
             elif order==4:
